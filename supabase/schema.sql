@@ -64,9 +64,30 @@ create policy "Only owner records positions while sharing" on public.gps_positio
 create policy "Owner deletes position history" on public.gps_positions for delete to authenticated
  using(exists(select 1 from public.gps_devices d where d.id=device_id and d.owner_id=(select auth.uid())));
 
--- Viewers discover only devices explicitly shared with them.
+-- SECURITY DEFINER avoids cyclic RLS checks between devices and grants.
+-- Caller identity is always obtained from auth.uid(), never from an input argument.
+create or replace function public.gps_can_view_device(target_device uuid)
+returns boolean language sql stable security definer set search_path = ''
+as $
+ select exists(
+   select 1 from public.gps_devices d
+   where d.id=target_device and d.sharing_enabled
+   and exists(select 1 from public.gps_access a
+              where a.device_id=d.id and a.viewer_id=(select auth.uid()))
+ );
+$;
+revoke all on function public.gps_can_view_device(uuid) from public,anon;
+grant execute on function public.gps_can_view_device(uuid) to authenticated;
+
+drop policy if exists "Viewer sees shared devices" on public.gps_devices;
 create policy "Viewer sees shared devices" on public.gps_devices for select to authenticated
- using(sharing_enabled and exists(select 1 from public.gps_access a where a.device_id=id and a.viewer_id=(select auth.uid())));
+ using(public.gps_can_view_device(id));
+
+drop policy if exists "Owner or approved viewer reads positions" on public.gps_positions;
+create policy "Owner or approved viewer reads positions" on public.gps_positions for select to authenticated
+ using(public.gps_can_view_device(device_id) or exists(
+  select 1 from public.gps_devices d where d.id=device_id and d.owner_id=(select auth.uid())
+ ));
 
 -- Grant creation is intentionally owner-only. An authenticated owner must add the viewer
 -- explicitly after obtaining the viewer's auth user ID through a trusted enrollment flow.
