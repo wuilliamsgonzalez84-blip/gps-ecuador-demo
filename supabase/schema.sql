@@ -48,7 +48,7 @@ create policy "Owner deletes own devices" on public.gps_devices for delete to au
  using(owner_id=(select auth.uid()));
 
 create policy "Owner reads grants" on public.gps_access for select to authenticated
- using(exists(select 1 from public.gps_devices d where d.id=device_id and d.owner_id=(select auth.uid())) or viewer_id=(select auth.uid()));
+ using(viewer_id=(select auth.uid()) or granted_by=(select auth.uid()));
 create policy "Owner grants access" on public.gps_access for insert to authenticated
  with check(granted_by=(select auth.uid()) and exists(select 1 from public.gps_devices d where d.id=device_id and d.owner_id=(select auth.uid())));
 create policy "Owner revokes access" on public.gps_access for delete to authenticated
