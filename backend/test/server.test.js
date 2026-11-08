@@ -42,3 +42,12 @@ test('API rejects unknown routes',async()=>{
   const r=await fetch('http://127.0.0.1:18888/api/unknown',{headers:{Authorization:'Bearer test-secret'}});
   assert.equal(r.status,404);
 });
+
+test('position endpoint requires authorization',async()=>{
+  const r=await fetch('http://127.0.0.1:18888/api/positions');
+  assert.equal(r.status,401);
+});
+test('position endpoint blocks disallowed origins',async()=>{
+  const r=await fetch('http://127.0.0.1:18888/api/positions',{headers:{Origin:'https://other.example',Authorization:'Bearer test-secret'}});
+  assert.equal(r.status,403);
+});
