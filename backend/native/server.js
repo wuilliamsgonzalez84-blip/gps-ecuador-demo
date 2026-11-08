@@ -1,5 +1,6 @@
 import net from 'node:net';
 import {parseImeiFrame,packetLength,decodeAvlPacket} from './teltonika.js';
+import {createPositionStore} from './store.js';
 
 // Native GPS receiver prototype. Explicitly provision device IMEIs via env.
 // This process is not ready for public Internet exposure until persistent storage,
@@ -7,12 +8,14 @@ import {parseImeiFrame,packetLength,decodeAvlPacket} from './teltonika.js';
 const port=Number(process.env.GPS_TCP_PORT||5027);
 const allowed=new Set((process.env.GPS_ALLOWED_IMEIS||'').split(',').map(x=>x.trim()).filter(Boolean));
 if(!allowed.size || [...allowed].some(x=>!/^\d{15}$/.test(x)))throw Error('Set GPS_ALLOWED_IMEIS to provisioned 15-digit IMEIs');
+const store=createPositionStore(process.env.DATABASE_URL);
 const server=net.createServer(socket=>{
   socket.setTimeout(30000);
-  let buffer=Buffer.alloc(0),imei=null,packets=0;
+  let buffer=Buffer.alloc(0),imei=null,busy=false;
   socket.on('timeout',()=>socket.destroy());
   socket.on('error',()=>{});
   socket.on('data',chunk=>{
+    if(busy)return socket.destroy();
     buffer=Buffer.concat([buffer,chunk]);
     if(buffer.length>131072)return socket.destroy();
     try{
@@ -32,12 +35,20 @@ const server=net.createServer(socket=>{
         if(buffer.length<length)return;
         const records=decodeAvlPacket(buffer.subarray(0,length));
         buffer=buffer.subarray(length);
-        // Deliberately no ACK until durable persistence exists.
-        // Sending an ACK without storage would permanently lose GPS data.
-        console.error('GPS packet validated but storage unavailable; no ACK sent');
-        return socket.destroy();
+        busy=true;
+        socket.pause();
+        store.save(imei,records).then(count=>{
+          if(socket.destroyed)return;
+          const ack=Buffer.alloc(4);
+          ack.writeUInt32BE(count);
+          socket.write(ack);
+          busy=false;
+          socket.resume();
+          if(buffer.length)socket.emit('data',Buffer.alloc(0));
+        }).catch(()=>socket.destroy());
+        return;
       }
     }catch{return socket.destroy();}
   });
 });
-server.listen(port,'127.0.0.1',()=>console.log('Native GPS prototype on localhost:'+port));
+server.listen(port,process.env.GPS_BIND_HOST||'127.0.0.1',()=>console.log('Native GPS receiver listening on port '+port));
