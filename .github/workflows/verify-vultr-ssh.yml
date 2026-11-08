@@ -75,6 +75,7 @@ jobs:
           expected=$(printf '%s' "$FINGERPRINT" | tr -d '\r\n' | xargs)
           : > ~/.ssh/known_hosts
           while IFS= read -r host_key; do
+            case "$host_key" in ""|\#*) continue ;; esac
             actual=$(printf '%s\n' "$host_key" | ssh-keygen -lf - -E sha256 | awk '{print $2}')
             if [ "$actual" = "$expected" ]; then
               printf '%s\n' "$host_key" >> ~/.ssh/known_hosts
