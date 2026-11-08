@@ -48,7 +48,7 @@ const server=net.createServer(socket=>{
                  !Number.isFinite(r.timestamp)||
                  r.timestamp>Date.now()+5*60*1000||
                  r.timestamp<Date.UTC(2000,0,1))continue;
-              await client.query('INSERT INTO positions(vehicle_id,latitude,longitude,recorded_at) VALUES($1,$2,$3,$4)',[dev.rows[0].vehicle_id,r.latitude,r.longitude,new Date(r.timestamp)]);
+              await client.query('INSERT INTO positions(vehicle_id,latitude,longitude,recorded_at) SELECT $1,$2,$3,$4 WHERE NOT EXISTS (SELECT 1 FROM positions WHERE vehicle_id=$1 AND latitude=$2 AND longitude=$3 AND recorded_at=$4)',[dev.rows[0].vehicle_id,r.latitude,r.longitude,new Date(r.timestamp)]);
             }
             await client.query('COMMIT');
           }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
