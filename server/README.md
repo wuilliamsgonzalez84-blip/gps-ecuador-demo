@@ -1,31 +1,31 @@
-# Servidor GPS Ecuador — despliegue para ~20 vehículos
+# Servidor GPS Ecuador — backend propio (sin Traccar)
 
-## Estado
-Esta carpeta contiene instrucciones de despliegue, **no** significa que exista ya un servidor activo. La página GitHub Pages actual es una demostración y NO debe recibir claves de Traccar.
+**Estado:** código inicial añadido; no está desplegado ni probado en un servidor público. No recibe todavía protocolos TCP/UDP de rastreadores 4G.
 
-## Requisitos
-- VPS Ubuntu actualizado (punto de partida sugerido: 2 vCPU / 4 GB RAM; medir uso real)
-- IP pública fija y dominio/subdominio controlado por el propietario
-- Docker Engine + Docker Compose
-- DNS A hacia el VPS, TLS HTTPS y copias de seguridad externas
-- GPS 4G desbloqueados compatibles con Ecuador y con Traccar
+## Funciones ya programadas
 
-## Instalación
-Seguir la guía oficial https://www.traccar.org/install-vps/ y el ejemplo oficial MySQL de https://www.traccar.org/docker/ .
-Instalar Traccar con MySQL persistente, no H2 para producción.
-Usar https://www.traccar.org/secure-connection/ para configurar Caddy y HTTPS.
-Configurar firewall: permitir SSH restringido, 80/443 para HTTPS, y **solo** los puertos TCP/UDP requeridos por los modelos GPS elegidos. Evitar exponer MySQL y el puerto HTTP interno 8082 a Internet.
-No subir contraseñas, API keys, IMEI ni ubicaciones reales a GitHub.
+- Organizaciones y usuarios con roles propietario/lector.
+- Sesiones con token aleatorio y contraseña derivada con scrypt.
+- Vehículos separados por organización.
+- Ingesta de coordenadas por HTTP autenticada con clave de dispositivo (solo para clientes propios o pruebas autorizadas).
+- Consulta de posiciones recientes por vehículo y almacenamiento SQLite.
 
-## Integración con GPS Ecuador
-La aplicación web está alojada en GitHub Pages (sitio público estático). No incorporar credenciales de administrador ni tokens permanentes en JavaScript público.
-Opción inicial segura: usar el panel web de Traccar en un subdominio privado con HTTPS, cuentas y autenticación propia.
-Para un panel personalizado, implementar un backend de acceso autenticado (BFF) que consulte la API Traccar en el servidor; nunca exponer credenciales de servicio en el frontend.
-Prueba inicial: registrar un solo GPS con su identificador único, configurar APN/SIM y host:puerto del protocolo correcto, comprobar posición, historial y permisos.
-Hacer pruebas de restauración de backups y supervisión antes de añadir los 19 restantes.
+## Ejecutar localmente
 
-## Pendiente
-1. Elegir proveedor VPS y crear cuenta/instancia (requiere intervención del titular y facturación).
-2. Definir dominio/subdominio, IP y modelo exacto de GPS.
-3. Desplegar, asegurar y probar.
-4. Integrar panel personalizado y verificar 20 dispositivos.
+1. Instala Node.js 20+ y ejecuta `npm install` en esta carpeta.
+2. Ejecuta `npm start` una vez para inicializar la base de datos y detén el servidor.
+3. Ejecuta `node bootstrap.js "Mi empresa" "correo@ejemplo.com" "contraseña-de-14-caracteres-o-más"`. Evita usar una contraseña real en una terminal que guarde historial; este método es provisional.
+4. Ejecuta `npm start`. Escucha únicamente en `127.0.0.1:3000`.
+
+## API inicial
+
+- `POST /api/login`: `{email,password}`; devuelve token temporal.
+- `POST /api/logout`: cierra sesión.
+- `GET /api/vehicles`: lista vehículos de la organización autenticada.
+- `POST /api/vehicles`: `{name}`; devuelve clave de dispositivo **una sola vez**.
+- `GET /api/vehicles/:id/positions`: últimas 500 posiciones del vehículo autorizado.
+- `POST /api/ingest`: cabecera `Authorization: Device <clave>`, JSON `{lat,lon,speed,recordedAt}`, tiempo en milisegundos Unix.
+
+## Antes de publicar o vender
+
+Necesita HTTPS, proxy inverso, firewall, pruebas de seguridad, backups y restauración, recuperación de contraseñas, rotación de claves, monitoreo, política de retención, consentimiento y protección de datos. Para mayor escala, evaluar PostgreSQL, migraciones y límites por cliente. No poner tokens ni coordenadas privadas en GitHub Pages. El receptor de rastreadores GPS 4G reales depende del modelo y protocolo elegido.
