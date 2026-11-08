@@ -64,3 +64,16 @@ test('history rejects excessive date ranges',async()=>{
   const r=await fetch('http://127.0.0.1:18888/api/history?deviceId=1&from=2026-01-01T00%3A00%3A00Z&to=2026-11-02T00%3A00%3A00Z',{headers:{Authorization:'Bearer test-secret'}});
   assert.equal(r.status,400);
 });
+
+test('rejects incorrect API key',async()=>{
+  const r=await fetch('http://127.0.0.1:18888/api/vehicles',{headers:{Authorization:'Bearer wrong-key'}});
+  assert.equal(r.status,401);
+});
+test('rejects query parameters on current positions',async()=>{
+  const r=await fetch('http://127.0.0.1:18888/api/positions?deviceId=1',{headers:{Authorization:'Bearer test-secret'}});
+  assert.equal(r.status,400);
+});
+test('rejects malformed history dates',async()=>{
+  const r=await fetch('http://127.0.0.1:18888/api/history?deviceId=1&from=bad&to=also-bad',{headers:{Authorization:'Bearer test-secret'}});
+  assert.equal(r.status,400);
+});
