@@ -62,3 +62,16 @@ test('private endpoints reject malformed credentials without crashing',async()=>
   assert.ok([401,503].includes(response.status));
  }finally{await new Promise(resolve=>server.close(resolve));}
 });
+
+test('fleet status and alerts are private',async()=>{
+ const server=http.createServer(app);
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ try{
+  const base='http://127.0.0.1:'+server.address().port;
+  for(const endpoint of ['/api/fleet/status','/api/alerts']){
+   const response=await fetch(base+endpoint);
+   assert.ok([401,503].includes(response.status),endpoint);
+   assert.equal(response.headers.get('cache-control'),'no-store');
+  }
+ }finally{await new Promise(resolve=>server.close(resolve));}
+});
