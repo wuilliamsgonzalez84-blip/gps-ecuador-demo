@@ -46,5 +46,20 @@ app.get('/api/positions/latest',auth,async(_req,res)=>{
     res.json({vehicles:result.rows});
   }catch(e){console.error('DB error:',e.code);res.status(500).json({error:'Error interno'});}
 });
+app.get('/api/vehicles/:id/history',auth,async(req,res)=>{
+  const id=Number(req.params.id);
+  if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'ID de vehículo inválido'});
+  const from=Date.parse(String(req.query.from||''));
+  const to=Date.parse(String(req.query.to||''));
+  if(!Number.isFinite(from)||!Number.isFinite(to)||from>to||to-from>7*86400000)
+    return res.status(400).json({error:'Indica from y to válidos (máximo 7 días)'});
+  try{
+    const result=await pool.query(
+      'SELECT latitude,longitude,recorded_at FROM positions WHERE vehicle_id=$1 AND recorded_at >= $2 AND recorded_at <= $3 ORDER BY recorded_at ASC,id ASC LIMIT 5000',
+      [id,new Date(from),new Date(to)]
+    );
+    res.json({vehicle_id:id,positions:result.rows,limit:5000});
+  }catch(e){console.error('DB error:',e.code);res.status(500).json({error:'Error interno'});}
+});
 if(require.main===module)app.listen(Number(process.env.API_PORT||3000),'0.0.0.0',()=>console.log('GPS Ecuador private API listening'));
 module.exports=app;
