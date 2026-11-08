@@ -1,6 +1,6 @@
 # GPS Ecuador
 
-Aplicación de demostración de rastreo vehicular. **Actualmente el panel principal usa datos ficticios y no rastrea vehículos reales.** No confundir los enlaces de prueba de teléfono con una plataforma de producción.
+> **Actualización 8 de noviembre de 2026:** Se está construyendo una arquitectura propia **sin Traccar**. El repositorio conserva prototipos antiguos basados en Traccar y SQLite que **no deben considerarse el despliegue actual**. En Vultr, las capturas de terminal muestran un receptor Teltonika Node.js en `/opt/gps-ecuador-staging/backend/teltonika` con 8 pruebas automatizadas correctas; eso **no verifica todavía** la ingesta de posiciones reales, la conexión efectiva a PostgreSQL, la API pública ni el mapa. El panel `index.html` sigue siendo demostrativo. No migrar ni borrar bases de datos hasta comprobar su estado y realizar un respaldo.\n\nAplicación de demostración de rastreo vehicular. **Actualmente el panel principal usa datos ficticios y no rastrea vehículos reales.** No confundir los enlaces de prueba de teléfono con una plataforma de producción.
 
 ## Objetivo
 
