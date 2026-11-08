@@ -22,6 +22,9 @@ function auth(req,res,next){
   next();
 }
 function challenge(res){res.set('WWW-Authenticate','Basic realm="GPS Ecuador privado", charset="UTF-8"');return res.status(401).send('Acceso restringido');}
+app.get('/devices',auth,(_req,res)=>res.sendFile(path.join(__dirname,'device-admin.html')));
+app.get('/device-admin.js',auth,(_req,res)=>res.type('application/javascript').sendFile(path.join(__dirname,'device-admin.js')));
+app.get('/device-admin.css',auth,(_req,res)=>res.type('text/css').sendFile(path.join(__dirname,'device-admin.css')));
 app.get('/panel',auth,(_req,res)=>res.sendFile(path.join(__dirname,'private-map.html')));
 app.get('/private-map.js',auth,(_req,res)=>res.type('application/javascript').sendFile(path.join(__dirname,'private-map.js')));
 // Private readiness check: unlike /api/health, confirms DB connectivity.
