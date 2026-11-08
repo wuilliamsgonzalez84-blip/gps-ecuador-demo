@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeVehicle, filterAllowedVehicles, validateHistoryRange, classifyDeviceStatus } from '../lib/vehicle-utils.js';
+import { normalizeVehicle, filterAllowedVehicles, validateHistoryRange, classifyDeviceStatus, filterAllowedPositions } from '../lib/vehicle-utils.js';
 
 test('normalizes vehicle without leaking identifiers or attributes', () => {
   assert.deepEqual(normalizeVehicle({id:1,name:'Camioneta',status:'online',lastUpdate:'2026-11-07T10:00:00Z',uniqueId:'SECRET'}),{
@@ -21,4 +21,22 @@ test('classifies recent and stale updates', () => {
   assert.equal(classifyDeviceStatus('2026-11-07T11:55:00Z',now),'recent');
   assert.equal(classifyDeviceStatus('2026-11-07T10:00:00Z',now),'stale');
   assert.equal(classifyDeviceStatus(null,now),'unknown');
+});
+
+test('filters private vehicles and invalid GPS fixes', () => {
+  const allowed = new Set([1]);
+  const positions = [
+    {deviceId:1,latitude:-0.18,longitude:-78.47,fixTime:'2026-11-07T12:00:00Z',speed:12,valid:true,attributes:{secret:'hidden'}},
+    {deviceId:2,latitude:1,longitude:2,fixTime:'2026-11-07T12:00:00Z',valid:true},
+    {deviceId:1,latitude:200,longitude:2,fixTime:'2026-11-07T12:00:00Z',valid:true},
+    {deviceId:1,latitude:1,longitude:2,fixTime:'2026-11-07T12:00:00Z',valid:false}
+  ];
+  const result=filterAllowedPositions(positions,allowed);
+  assert.equal(result.length,1);
+  assert.equal(result[0].deviceId,1);
+  assert.equal(result[0].latitude,-0.18);
+  assert.equal('attributes' in result[0],false);
+});
+test('rejects GPS fixes without valid timestamp', () => {
+  assert.deepEqual(filterAllowedPositions([{deviceId:1,latitude:0,longitude:0,fixTime:'invalid',valid:true}],new Set([1])),[]);
 });
