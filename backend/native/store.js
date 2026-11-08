@@ -2,9 +2,9 @@
 // No ACK should be sent until this transaction commits successfully.
 import pg from 'pg';
 const {Pool}=pg;
-export function createPositionStore(connectionString){
-  if(!connectionString)throw Error('DATABASE_URL required');
-  const pool=new Pool({connectionString,max:10,connectionTimeoutMillis:5000});
+export function createPositionStore(connectionString, injectedPool=null){
+  if(!connectionString && !injectedPool)throw Error('DATABASE_URL required');
+  const pool=injectedPool || new Pool({connectionString,max:10,connectionTimeoutMillis:5000});
   return {
     async save(imei,records){
       if(!/^\d{15}$/.test(imei)||!Array.isArray(records)||records.length>100)throw Error('Invalid GPS batch');
