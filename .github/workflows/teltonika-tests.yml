@@ -21,4 +21,4 @@ jobs:
           for f in backend/teltonika/*.js; do node --check "$f"; done
       - name: Decoder tests
         working-directory: backend/teltonika
-        run: node --test codec.test.js
+        run: node --test codec.test.js receiver.test.js
