@@ -26,11 +26,14 @@ async function refresh(){
     if(!r.ok)throw Error('HTTP '+r.status);
     const data=await r.json();
     const list=document.getElementById('vehicles');list.replaceChildren();
-    const present=new Set();const bounds=[];
+    const present=new Set();const bounds=[];let online=0,stale=0;
     for(const v of data.vehicles){
       const li=document.createElement('li');
       const valid=Number.isFinite(Number(v.latitude))&&Number.isFinite(Number(v.longitude))&&v.latitude!==null&&v.longitude!==null&&!(Number(v.latitude)===0&&Number(v.longitude)===0);
-      li.textContent=v.name+(valid?' — '+new Date(v.recorded_at).toLocaleString('es-EC'):' — Sin ubicación');
+      const time=Date.parse(v.recorded_at||'');
+      const fresh=valid&&Number.isFinite(time)&&time<=Date.now()+300000&&Date.now()-time<=15*60000;
+      if(valid){if(fresh)online++;else stale++;}
+      li.textContent=v.name+(valid?' — '+(fresh?'Reciente':'Sin actualización reciente')+' · '+(Number.isFinite(time)?new Date(time).toLocaleString('es-EC'):'fecha desconocida'):' — Sin ubicación');
       const button=document.createElement('button');
       button.type='button';button.textContent='Ver recorrido de 24 h';
       button.style.marginLeft='12px';
@@ -46,7 +49,7 @@ async function refresh(){
     }
     for(const [id,pin] of pins)if(!present.has(id)){map.removeLayer(pin);pins.delete(id);}
     if(first&&bounds.length){map.fitBounds(bounds,{padding:[30,30],maxZoom:14});first=false;}
-    status.textContent=data.vehicles.length+' vehículos registrados · '+bounds.length+' con posición · actualización cada 15 segundos';
+    status.textContent=data.vehicles.length+' vehículos registrados · '+online+' con señal reciente · '+stale+' sin actualización reciente · actualización cada 15 segundos';
   }catch(e){status.textContent='No se pudieron consultar las ubicaciones. Comprueba la conexión y el acceso privado.';}
 }
 refresh();setInterval(refresh,15000);
