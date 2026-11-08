@@ -1,0 +1,24 @@
+name: Teltonika receiver tests
+on:
+  pull_request:
+    paths:
+      - 'backend/teltonika/**'
+      - '.github/workflows/teltonika-tests.yml'
+  push:
+    paths:
+      - 'backend/teltonika/**'
+      - '.github/workflows/teltonika-tests.yml'
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax checks
+        run: |
+          for f in backend/teltonika/*.js; do node --check "$f"; done
+      - name: Decoder tests
+        working-directory: backend/teltonika
+        run: node --test codec.test.js
