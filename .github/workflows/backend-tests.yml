@@ -17,3 +17,5 @@ jobs:
       - run: npm install --ignore-scripts --no-audit --no-fund
       - run: npm test
       - run: npm run check
+      - name: Validate backup shell script
+        run: bash -n scripts/backup-postgres.sh
