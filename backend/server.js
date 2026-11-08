@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { filterAllowedVehicles } from './lib/vehicle-utils.js';
 
 const PORT = Number(process.env.PORT || 8080);
 const TRACCAR_URL = process.env.TRACCAR_URL;
@@ -6,7 +7,7 @@ const TRACCAR_TOKEN = process.env.TRACCAR_TOKEN;
 const APP_API_KEY = process.env.APP_API_KEY;
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN;
 const DEVICE_ALLOWLIST = (process.env.DEVICE_ALLOWLIST || '').split(',').map(x => x.trim()).filter(Boolean);
-const MAX_BODY = 1024;
+
 if (!TRACCAR_URL || !TRACCAR_TOKEN || !APP_API_KEY || !ALLOWED_ORIGIN || !DEVICE_ALLOWLIST.length) {
   console.error('Missing required environment variables. See .env.example');
   process.exit(1);
@@ -31,24 +32,32 @@ const server = http.createServer(async (req,res) => {
   const provided = req.headers.authorization;
   if (provided !== 'Bearer ' + APP_API_KEY) return json(res,401,{error:'Unauthorized'});
   const path = new URL(req.url,'http://localhost');
-  if (path.pathname !== '/api/vehicles' || path.search) return json(res,404,{error:'Not found'});
+  if (!['/api/vehicles','/api/positions'].includes(path.pathname) || path.search) return json(res,404,{error:'Not found'});
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(),8000);
     let response;
     try {
-      response = await fetch(new URL('/api/devices',upstream),{
+      response = await fetch(new URL(path.pathname === '/api/positions' ? '/api/positions' : '/api/devices',upstream),{
         headers:{Authorization:'Bearer '+TRACCAR_TOKEN,Accept:'application/json'},
         signal:controller.signal
       });
     } finally { clearTimeout(timeout); }
     if (!response.ok) return json(res,502,{error:'Upstream unavailable'});
-    const devices = await response.json();
-    if (!Array.isArray(devices)) return json(res,502,{error:'Unexpected upstream response'});
-    const safe = devices.filter(d => allowedIds.has(d.id)).map(d => ({
-      id:d.id,name:d.name,status:d.status,lastUpdate:d.lastUpdate
-    }));
-    return json(res,200,{vehicles:safe});
+    const data = await response.json();
+    if (!Array.isArray(data)) return json(res,502,{error:'Unexpected upstream response'});
+    if (path.pathname === '/api/vehicles') {
+      return json(res,200,{vehicles:filterAllowedVehicles(data,allowedIds)});
+    }
+    const positions = data.filter(p => allowedIds.has(p?.deviceId)).map(p => ({
+      deviceId:p.deviceId,
+      latitude:Number.isFinite(p.latitude) && p.latitude >= -90 && p.latitude <= 90 ? p.latitude : null,
+      longitude:Number.isFinite(p.longitude) && p.longitude >= -180 && p.longitude <= 180 ? p.longitude : null,
+      fixTime:typeof p.fixTime === 'string' ? p.fixTime : null,
+      speed:Number.isFinite(p.speed) ? p.speed : null,
+      valid:p.valid === true
+    })).filter(p => p.latitude !== null && p.longitude !== null);
+    return json(res,200,{positions});
   } catch { return json(res,502,{error:'Upstream unavailable'}); }
 });
 server.requestTimeout = 10000;
