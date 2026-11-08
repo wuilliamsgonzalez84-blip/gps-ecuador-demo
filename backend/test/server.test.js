@@ -51,3 +51,16 @@ test('position endpoint blocks disallowed origins',async()=>{
   const r=await fetch('http://127.0.0.1:18888/api/positions',{headers:{Origin:'https://other.example',Authorization:'Bearer test-secret'}});
   assert.equal(r.status,403);
 });
+
+test('history endpoint requires authorization',async()=>{
+  const r=await fetch('http://127.0.0.1:18888/api/history?deviceId=1&from=2026-11-01T00%3A00%3A00Z&to=2026-11-02T00%3A00%3A00Z');
+  assert.equal(r.status,401);
+});
+test('history rejects unauthorized device',async()=>{
+  const r=await fetch('http://127.0.0.1:18888/api/history?deviceId=999&from=2026-11-01T00%3A00%3A00Z&to=2026-11-02T00%3A00%3A00Z',{headers:{Authorization:'Bearer test-secret'}});
+  assert.equal(r.status,400);
+});
+test('history rejects excessive date ranges',async()=>{
+  const r=await fetch('http://127.0.0.1:18888/api/history?deviceId=1&from=2026-01-01T00%3A00%3A00Z&to=2026-11-02T00%3A00%3A00Z',{headers:{Authorization:'Bearer test-secret'}});
+  assert.equal(r.status,400);
+});
