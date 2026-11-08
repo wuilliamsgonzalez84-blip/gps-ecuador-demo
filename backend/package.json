@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "start": "node server.cjs",
-    "check": "node --check server.cjs && node --check receiver.cjs && node --check teltonika.cjs && node --check db.cjs && node --check private-map.js && node --check scripts/check-config.cjs && node --check device-admin.cjs",
+    "check": "node --check server.cjs && node --check receiver.cjs && node --check teltonika.cjs && node --check db.cjs && node --check private-map.js && node --check scripts/check-config.cjs && node --check device-admin.cjs && node --check device-admin.js",
     "test": "node --test test/*.test.cjs",
     "receiver": "node receiver.cjs"
   },
