@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "start": "node server.cjs",
-    "check": "node --check server.cjs"
+    "check": "node --check server.cjs",
+    "test": "node --test test/*.test.cjs",
+    "receiver": "node receiver.cjs"
   },
   "dependencies": {
     "express": "^4.21.2",
