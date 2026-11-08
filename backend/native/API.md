@@ -25,3 +25,10 @@ Todas las consultas aplican `organization_id` del servidor, sin aceptar organiza
 - El receptor todavía necesita validación con tramas físicas y PostgreSQL real.
 - La API no ofrece WebSocket, alertas, informes ni mapas por sí sola.
 - La versión anterior `backend/server.js` sigue siendo un prototipo legado con Traccar; no desplegarla para el sistema independiente.
+
+## Panel conectado al mapa
+- Abrir `http://127.0.0.1:8090/dashboard` desde el propio servidor o mediante un túnel privado seguro.
+- Introducir la clave `GPS_API_KEY` solo en un equipo administrativo de confianza; el panel la mantiene en memoria y no la persiste.
+- El mapa consulta `/api/vehicles` y `/api/positions` cada 15 segundos en el mismo origen. Los mosaicos visuales provienen de OpenStreetMap; las posiciones proceden de PostgreSQL.
+- El panel **no está disponible en GitHub Pages**. Requiere desplegar PostgreSQL, receptor y API.
+- Antes de ofrecer acceso a clientes, reemplazar el uso de clave compartida por login, sesiones HttpOnly, autorización por usuario, HTTPS, límites de peticiones y auditoría.
