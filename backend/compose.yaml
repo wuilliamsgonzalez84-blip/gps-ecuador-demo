@@ -1,0 +1,14 @@
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      DB_HOST: gps-postgres
+    networks:
+      - gps-ecuador-net
+    # No public ports until login, permissions and HTTPS are ready.
+networks:
+  gps-ecuador-net:
+    external: true
