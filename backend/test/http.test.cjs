@@ -75,3 +75,14 @@ test('fleet status and alerts are private',async()=>{
   }
  }finally{await new Promise(resolve=>server.close(resolve));}
 });
+
+test('the private map HTML is not exposed to unauthenticated users',async()=>{
+ const server=http.createServer(app);
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ try{
+  const base='http://127.0.0.1:'+server.address().port;
+  const response=await fetch(base+'/panel');
+  assert.ok([401,503].includes(response.status));
+  assert.ok(!(await response.text()).includes('id="alerts"'));
+ }finally{await new Promise(resolve=>server.close(resolve));}
+});
