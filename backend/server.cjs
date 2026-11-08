@@ -1,17 +1,49 @@
-const express = require('express');
-const pool = require('./db.cjs');
-const app = express();
+'use strict';
+const express=require('express');
+const crypto=require('node:crypto');
+const path=require('node:path');
+const pool=require('./db.cjs');
+const app=express();
 app.disable('x-powered-by');
 app.use(express.json({limit:'32kb'}));
-app.get('/api/health', (_req,res) => res.json({sistema:'GPS Ecuador',estado:'funcionando'}));
-app.get('/api/vehicles/count', async (_req,res) => {
-  try {
-    const r = await pool.query('SELECT COUNT(*) AS total FROM vehicles');
-    res.json({total:Number(r.rows[0].total)});
-  } catch(e) {
-    console.error('DB query failed:',e.code);
-    res.status(500).json({error:'Error interno'});
-  }
+app.use((_req,res,next)=>{res.set('Cache-Control','no-store');res.set('X-Content-Type-Options','nosniff');res.set('Referrer-Policy','no-referrer');res.set('X-Frame-Options','DENY');next();});
+app.get('/api/health',(_req,res)=>res.json({sistema:'GPS Ecuador',estado:'funcionando'}));
+const user=process.env.MAP_USERNAME;
+const password=process.env.MAP_PASSWORD;
+function equal(a,b){const x=crypto.createHash('sha256').update(a).digest();const y=crypto.createHash('sha256').update(b).digest();return crypto.timingSafeEqual(x,y);}
+function auth(req,res,next){
+  if(!user||!password){return res.status(503).json({error:'Panel no configurado'});}
+  const header=req.get('authorization')||'';
+  if(!header.startsWith('Basic '))return challenge(res);
+  let decoded;
+  try{decoded=Buffer.from(header.slice(6),'base64').toString('utf8');}catch{return challenge(res);}
+  const i=decoded.indexOf(':');
+  if(i<0||!equal(decoded.slice(0,i),user)||!equal(decoded.slice(i+1),password))return challenge(res);
+  next();
+}
+function challenge(res){res.set('WWW-Authenticate','Basic realm="GPS Ecuador privado", charset="UTF-8"');return res.status(401).send('Acceso restringido');}
+app.get('/panel',auth,(_req,res)=>res.sendFile(path.join(__dirname,'private-map.html')));
+app.get('/api/vehicles/count',auth,async(_req,res)=>{
+  try{const r=await pool.query('SELECT COUNT(*) AS total FROM vehicles');res.json({total:Number(r.rows[0].total)});}
+  catch(e){console.error('DB error:',e.code);res.status(500).json({error:'Error interno'});}
 });
-if(require.main === module) app.listen(Number(process.env.API_PORT||3000),'0.0.0.0',()=>console.log('GPS Ecuador API listening'));
-module.exports = app;
+app.get('/api/positions/latest',auth,async(_req,res)=>{
+  try{
+    const result=await pool.query(`
+      SELECT v.id AS vehicle_id,v.name,
+             p.latitude,p.longitude,p.recorded_at
+      FROM vehicles v
+      LEFT JOIN LATERAL (
+        SELECT latitude,longitude,recorded_at
+        FROM positions
+        WHERE vehicle_id=v.id
+        ORDER BY recorded_at DESC,id DESC LIMIT 1
+      ) p ON TRUE
+      ORDER BY v.id
+      LIMIT 100
+    `);
+    res.json({vehicles:result.rows});
+  }catch(e){console.error('DB error:',e.code);res.status(500).json({error:'Error interno'});}
+});
+if(require.main===module)app.listen(Number(process.env.API_PORT||3000),'0.0.0.0',()=>console.log('GPS Ecuador private API listening'));
+module.exports=app;
