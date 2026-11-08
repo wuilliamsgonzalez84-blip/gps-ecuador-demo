@@ -23,6 +23,7 @@ function auth(req,res,next){
 }
 function challenge(res){res.set('WWW-Authenticate','Basic realm="GPS Ecuador privado", charset="UTF-8"');return res.status(401).send('Acceso restringido');}
 app.get('/panel',auth,(_req,res)=>res.sendFile(path.join(__dirname,'private-map.html')));
+app.get('/private-map.js',auth,(_req,res)=>res.type('application/javascript').sendFile(path.join(__dirname,'private-map.js')));
 app.get('/api/vehicles/count',auth,async(_req,res)=>{
   try{const r=await pool.query('SELECT COUNT(*) AS total FROM vehicles');res.json({total:Number(r.rows[0].total)});}
   catch(e){console.error('DB error:',e.code);res.status(500).json({error:'Error interno'});}
