@@ -42,3 +42,23 @@ test('private panel requires authentication',async()=>{
   assert.ok([401,503].includes(response.status));
  }finally{await new Promise(resolve=>server.close(resolve));}
 });
+
+test('private map JavaScript cannot be downloaded anonymously',async()=>{
+ const server=http.createServer(app);
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ try{
+  const base='http://127.0.0.1:'+server.address().port;
+  const response=await fetch(base+'/private-map.js');
+  assert.ok([401,503].includes(response.status));
+  assert.equal(response.headers.get('cache-control'),'no-store');
+ }finally{await new Promise(resolve=>server.close(resolve));}
+});
+test('private endpoints reject malformed credentials without crashing',async()=>{
+ const server=http.createServer(app);
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ try{
+  const base='http://127.0.0.1:'+server.address().port;
+  const response=await fetch(base+'/api/positions/latest',{headers:{authorization:'Basic '+Buffer.from('invalid').toString('base64')}});
+  assert.ok([401,503].includes(response.status));
+ }finally{await new Promise(resolve=>server.close(resolve));}
+});
