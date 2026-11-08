@@ -86,3 +86,14 @@ test('the private map HTML is not exposed to unauthenticated users',async()=>{
   assert.ok(!(await response.text()).includes('id="alerts"'));
  }finally{await new Promise(resolve=>server.close(resolve));}
 });
+
+test('database readiness endpoint is private',async()=>{
+ const server=http.createServer(app);
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ try{
+  const base='http://127.0.0.1:'+server.address().port;
+  const response=await fetch(base+'/api/ready');
+  assert.ok([401,503].includes(response.status));
+  assert.equal(response.headers.get('cache-control'),'no-store');
+ }finally{await new Promise(resolve=>server.close(resolve));}
+});
