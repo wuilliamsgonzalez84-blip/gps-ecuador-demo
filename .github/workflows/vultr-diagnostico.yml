@@ -1,0 +1,70 @@
+name: GPS Ecuador - Verificar Vultr (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Solo diagnóstico; no instala ni modifica servicios"
+        required: true
+        type: choice
+        options:
+          - diagnostico
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gps-ecuador-vultr-diagnostico
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Comprobar secretos requeridos
+        env:
+          HOST: ${{ secrets.GPS_VULTR_HOST }}
+          USER: ${{ secrets.GPS_VULTR_USER }}
+          KEY: ${{ secrets.GPS_VULTR_SSH_KEY }}
+          FINGERPRINT: ${{ secrets.GPS_VULTR_HOST_FINGERPRINT }}
+        run: |
+          test -n "$HOST" && test -n "$USER" && test -n "$KEY" && test -n "$FINGERPRINT" || {
+            echo "::error::Faltan secretos de conexión; no se intentó conectar."
+            exit 1
+          }
+      - name: Preparar conexión SSH verificada
+        env:
+          SSH_KEY: ${{ secrets.GPS_VULTR_SSH_KEY }}
+          SSH_FINGERPRINT: ${{ secrets.GPS_VULTR_HOST_FINGERPRINT }}
+          SSH_HOST: ${{ secrets.GPS_VULTR_HOST }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null
+          # Comprobar huella de host previamente validada fuera de CI.
+          ssh-keyscan -T 5 -t ed25519 "$SSH_HOST" 2>/dev/null > /tmp/gps-hostkeys
+          test -s /tmp/gps-hostkeys
+          ssh-keygen -lf /tmp/gps-hostkeys -E sha256 | grep -F -- "$SSH_FINGERPRINT" >/dev/null
+          cp /tmp/gps-hostkeys ~/.ssh/known_hosts
+      - name: Diagnóstico remoto sin cambios
+        env:
+          SSH_HOST: ${{ secrets.GPS_VULTR_HOST }}
+          SSH_USER: ${{ secrets.GPS_VULTR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -u
+          echo "=== GPS Ecuador: verificación remota de solo lectura ==="
+          systemctl is-active gps-teltonika.service || true
+          ss -lnt | grep ':5028 ' || true
+          for f in /opt/gps-ecuador-staging/backend/teltonika/{app.js,migration.sql,.env}; do
+            if test -f "$f"; then echo "PRESENTE: $(basename "$f")"; else echo "NO ENCONTRADO: $(basename "$f")"; fi
+          done
+          if command -v pg_isready >/dev/null 2>&1; then
+            pg_isready -q && echo 'PostgreSQL local responde' || echo 'PostgreSQL local no responde (puede ser remoto o Docker)'
+          fi
+          echo "No se modificó el servidor."
+          REMOTE
