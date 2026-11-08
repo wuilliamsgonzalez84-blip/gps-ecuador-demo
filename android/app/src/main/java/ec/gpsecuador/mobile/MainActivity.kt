@@ -12,16 +12,32 @@ import android.widget.TextView
 
 class MainActivity : Activity() {
     private lateinit var state: TextView
+    private lateinit var history: TextView
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(32, 48, 32, 32) }
         layout.addView(TextView(this).apply { text = "GPS Ecuador"; textSize = 26f })
-        layout.addView(TextView(this).apply { text = "Compartir ubicación solo con tu autorización. Mientras esté activo, verás una notificación permanente. Esta versión aún NO transmite posiciones a otro teléfono." })
+        layout.addView(TextView(this).apply { text = "Compartir ubicación solo con tu autorización. Mientras esté activo, verás una notificación permanente. Esta versión guarda hasta 300 posiciones de forma privada en este teléfono. Aún NO transmite posiciones a otro teléfono." })
         state = TextView(this).apply { text = "Seguimiento desactivado" }
         layout.addView(state)
         layout.addView(Button(this).apply { text = "Iniciar GPS"; setOnClickListener { requestLocation() } })
         layout.addView(Button(this).apply { text = "Detener GPS"; setOnClickListener { stopService(Intent(this@MainActivity, LocationService::class.java)); state.text = "Seguimiento detenido" } })
+        history = TextView(this).apply { text = LocationHistory.summary(this@MainActivity); setPadding(0, 24, 0, 24) }
+        layout.addView(history)
+        layout.addView(Button(this).apply { text = "Actualizar historial local"; setOnClickListener { history.text = LocationHistory.summary(this@MainActivity) } })
+        layout.addView(Button(this).apply { text = "Borrar historial local"; setOnClickListener {
+            android.app.AlertDialog.Builder(this@MainActivity)
+                .setTitle("¿Borrar historial GPS?")
+                .setMessage("Se eliminarán las posiciones guardadas en este teléfono. Esta acción no se puede deshacer.")
+                .setNegativeButton("Cancelar", null)
+                .setPositiveButton("Borrar") { _, _ -> LocationHistory.clear(this@MainActivity); history.text = LocationHistory.summary(this@MainActivity) }
+                .show()
+        } })
         setContentView(layout)
+    }
+    override fun onResume() {
+        super.onResume()
+        if (::history.isInitialized) history.text = LocationHistory.summary(this)
     }
     private fun requestLocation() {
         val permissions = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
