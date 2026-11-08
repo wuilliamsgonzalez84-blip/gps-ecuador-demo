@@ -13,7 +13,7 @@ async function showRoute(vehicle){
   if(!response.ok)throw Error('History unavailable');
   const data=await response.json();
   if(routeLine){map.removeLayer(routeLine);routeLine=null;}
-  const points=data.positions.filter(p=>p.latitude!==null&&p.longitude!==null).map(p=>[Number(p.latitude),Number(p.longitude)]);
+  const points=data.positions.filter(p=>p.latitude!==null&&p.longitude!==null&&!(Number(p.latitude)===0&&Number(p.longitude)===0)).map(p=>[Number(p.latitude),Number(p.longitude)]);
   if(points.length){routeLine=L.polyline(points,{color:'#1d77ff',weight:4}).addTo(map);map.fitBounds(routeLine.getBounds(),{padding:[30,30],maxZoom:15});}
   status.textContent=vehicle.name+': '+points.length+' posiciones en las últimas 24 horas';
  }catch{status.textContent='No se pudo cargar el recorrido de '+vehicle.name;}
@@ -29,7 +29,7 @@ async function refresh(){
     const present=new Set();const bounds=[];
     for(const v of data.vehicles){
       const li=document.createElement('li');
-      const valid=Number.isFinite(Number(v.latitude))&&Number.isFinite(Number(v.longitude))&&v.latitude!==null&&v.longitude!==null;
+      const valid=Number.isFinite(Number(v.latitude))&&Number.isFinite(Number(v.longitude))&&v.latitude!==null&&v.longitude!==null&&!(Number(v.latitude)===0&&Number(v.longitude)===0);
       li.textContent=v.name+(valid?' — '+new Date(v.recorded_at).toLocaleString('es-EC'):' — Sin ubicación');
       const button=document.createElement('button');
       button.type='button';button.textContent='Ver recorrido de 24 h';
