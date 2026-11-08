@@ -35,8 +35,9 @@ function startReceiver({ port = 5028, authorize, save, logger = console }) {
             if (buffer.length < 17) break;
             const frame = parseImei(buffer.subarray(0, 17));
             if (!frame || !await authorize(frame.imei)) {
-              socket.write(Buffer.from([0]));
-              return close();
+              closed = true;
+              socket.end(Buffer.from([0]));
+              return;
             }
             imei = frame.imei;
             buffer = buffer.subarray(17);
