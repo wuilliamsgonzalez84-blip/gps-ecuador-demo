@@ -23,3 +23,22 @@ test('positions endpoint does not expose data without credentials',async()=>{
   assert.equal(r.headers.get('cache-control'),'no-store');
  }finally{await new Promise(resolve=>server.close(resolve));}
 });
+
+test('history endpoint requires authentication',async()=>{
+ const server=http.createServer(app);
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ try{
+  const base='http://127.0.0.1:'+server.address().port;
+  const response=await fetch(base+'/api/vehicles/1/history?from=2026-11-01&to=2026-11-02');
+  assert.ok([401,503].includes(response.status));
+ }finally{await new Promise(resolve=>server.close(resolve));}
+});
+test('private panel requires authentication',async()=>{
+ const server=http.createServer(app);
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ try{
+  const base='http://127.0.0.1:'+server.address().port;
+  const response=await fetch(base+'/panel');
+  assert.ok([401,503].includes(response.status));
+ }finally{await new Promise(resolve=>server.close(resolve));}
+});
