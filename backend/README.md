@@ -1,19 +1,21 @@
-# GPS Ecuador API — private prototype
+# GPS Ecuador — backend propio, sin Traccar
 
-Node.js 20+ API scaffold. **Not production-ready or multi-tenant.** No live positions or history are exposed yet.
+Esta rama prepara una API Node.js privada con PostgreSQL. **Todavía no rastrea vehículos reales.**
 
-## Features
-- Health check: GET /health
-- Authenticated GET /api/vehicles: fetches Traccar device metadata, filtered by an explicit server-side allowlist.
-- Listens on 127.0.0.1 only; place behind a properly configured HTTPS reverse proxy.
-- Does not expose Traccar credentials to the public frontend.
+## Estado
+- GET /api/health: comprobación local.
+- GET /api/vehicles/count: consulta a la tabla vehicles.
+- Docker Compose conecta la API a gps-postgres mediante la red externa gps-ecuador-net.
+- El receptor Teltonika, login, autorización, mapa real y HTTPS están pendientes.
 
-## Run
-1. Install Node.js 20+ on a trusted server.
-2. Set the variables from `.env.example` securely (do not commit secrets).
-3. `node server.js`
-4. Test locally: `curl http://127.0.0.1:8080/health`.
+## Requisitos
+En el servidor Vultr: PostgreSQL en contenedor gps-postgres, red gps-ecuador-net, y archivo privado /opt/gps-ecuador/.env con POSTGRES_USER, POSTGRES_PASSWORD y POSTGRES_DB. Nunca subir .env al repositorio.
 
-**Security limitations:** APP_API_KEY is a server-to-server secret, not a browser login. Never put it in public JavaScript, GitHub Pages, or a mobile app. This starter is not ready to connect the public demo. Add real user authentication, authorization per organization, rate limiting, audit logging, reverse proxy TLS, and tests before exposing it. Configure Traccar with least-privilege access; verify your Traccar version supports bearer tokens.
+## Seguridad
+La API no tiene autenticación: **no publicar el puerto 3000 en Internet**. No conectar aún la interfaz pública. Antes del despliegue se deben añadir autenticación, autorización por vehículo, HTTPS, copias de seguridad y límites de solicitudes.
 
-The demo UI remains separate until a secure authenticated backend is deployed.
+## Próximos pasos
+1. Implementar y probar Codec 8/8E de Teltonika, IMEI, ACK, CRC y fragmentación TCP.
+2. Persistir ubicaciones y asociarlas a dispositivos autorizados.
+3. Añadir cuentas y autorización por vehículo.
+4. Conectar la interfaz y probar con un FMC920 autorizado.
