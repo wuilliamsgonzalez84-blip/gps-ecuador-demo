@@ -28,3 +28,13 @@ La API no tiene autenticación: **no publicar el puerto 3000 en Internet**. No c
 - El receptor exige una tabla `devices(imei,vehicle_id,enabled)`, y la tabla `positions(vehicle_id,latitude,longitude,recorded_at)`.
 - No abrir el puerto TCP 5027 al público hasta completar pruebas, límites, monitoreo y medidas antiabuso.
 - La configuración Docker del receptor y el despliegue real todavía están pendientes.
+
+## Mapa privado integrado (código en GitHub; aún no desplegado)
+- `GET /panel` sirve un mapa Leaflet de acceso restringido.
+- `GET /api/positions/latest` consulta PostgreSQL y devuelve la última posición de cada vehículo.
+- `GET /api/vehicles/count` también requiere acceso.
+- Variables obligatorias: `MAP_USERNAME` y `MAP_PASSWORD` (definir exclusivamente en el servidor; no incluir en GitHub).
+- Autenticación HTTP Basic es **provisional**: solo usar detrás de HTTPS con acceso restringido. No abrir el puerto 3000 directamente a Internet. Para servicio comercial se requieren cuentas individuales, sesiones y permisos por organización.
+- El mapa usa teselas de OpenStreetMap mediante Leaflet; verificar la política de uso de teselas antes de uso comercial.
+- No mostrar posiciones de terceros sin consentimiento y autorización.
+- La página pública de demostración no está conectada a la base de datos; el mapa privado se entrega desde la API.
