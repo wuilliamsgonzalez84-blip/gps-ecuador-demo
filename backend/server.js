@@ -1,5 +1,6 @@
 import http from 'node:http';
-import { filterAllowedVehicles, filterAllowedPositions } from './lib/vehicle-utils.js';
+import { timingSafeEqual } from 'node:crypto';
+import { filterAllowedVehicles, filterAllowedPositions, validateHistoryRange } from './lib/vehicle-utils.js';
 
 const PORT = Number(process.env.PORT || 8080);
 const TRACCAR_URL = process.env.TRACCAR_URL;
@@ -20,6 +21,28 @@ const upstream = new URL(TRACCAR_URL);
 if (upstream.username || upstream.password || upstream.search || upstream.hash) throw Error('Invalid TRACCAR_URL');
 const allowedIds = new Set(DEVICE_ALLOWLIST.map(Number));
 if ([...allowedIds].some(id => !Number.isSafeInteger(id) || id <= 0)) throw Error('Invalid device allowlist');
+const attempts = new Map();
+const LIMIT = 60;
+function allowRequest(ip) {
+  const now = Date.now();
+  if (attempts.size > 10000) {
+    for (const [key, value] of attempts) if (value.reset < now) attempts.delete(key);
+    if (attempts.size > 10000) attempts.clear();
+  }
+  const entry = attempts.get(ip);
+  if (!entry || entry.reset < now) {
+    attempts.set(ip,{count:1,reset:now+60000});
+    return true;
+  }
+  entry.count++;
+  return entry.count <= LIMIT;
+}
+function authorized(header) {
+  if (typeof header !== 'string' || !header.startsWith('Bearer ')) return false;
+  const actual=Buffer.from(header.slice(7));
+  const expected=Buffer.from(APP_API_KEY);
+  return actual.length === expected.length && timingSafeEqual(actual,expected);
+}
 const json = (res, status, data) => {
   res.writeHead(status, {'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Vary':'Origin'});
   res.end(JSON.stringify(data));
@@ -27,18 +50,37 @@ const json = (res, status, data) => {
 const server = http.createServer(async (req,res) => {
   if (req.url === '/health' && req.method === 'GET') return json(res,200,{status:'ok'});
   if (!req.url?.startsWith('/api/')) return json(res,404,{error:'Not found'});
+  if (!allowRequest(req.socket.remoteAddress || 'unknown')) return json(res,429,{error:'Too many requests'});
   if (req.headers.origin && req.headers.origin !== ALLOWED_ORIGIN) return json(res,403,{error:'Origin not allowed'});
   if (req.method !== 'GET') return json(res,405,{error:'Method not allowed'});
   const provided = req.headers.authorization;
-  if (provided !== 'Bearer ' + APP_API_KEY) return json(res,401,{error:'Unauthorized'});
+  if (!authorized(provided)) return json(res,401,{error:'Unauthorized'});
   const path = new URL(req.url,'http://localhost');
-  if (!['/api/vehicles','/api/positions'].includes(path.pathname) || path.search) return json(res,404,{error:'Not found'});
+  const history = path.pathname === '/api/history';
+  if (!['/api/vehicles','/api/positions','/api/history'].includes(path.pathname)) return json(res,404,{error:'Not found'});
+  if (!history && path.search) return json(res,400,{error:'Unexpected query parameters'});
+  let historyParams;
+  if (history) {
+    const deviceId = Number(path.searchParams.get('deviceId'));
+    const from = path.searchParams.get('from');
+    const to = path.searchParams.get('to');
+    if (path.searchParams.size !== 3 || [...path.searchParams.keys()].some(k => !['deviceId','from','to'].includes(k)) ||
+        !Number.isSafeInteger(deviceId) || !allowedIds.has(deviceId) ||
+        !validateHistoryRange(from,to)) return json(res,400,{error:'Invalid or unauthorized history request'});
+    historyParams = {deviceId,from,to};
+  }
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(),8000);
     let response;
     try {
-      response = await fetch(new URL(path.pathname === '/api/positions' ? '/api/positions' : '/api/devices',upstream),{
+      const target = new URL(history ? '/api/positions' : path.pathname === '/api/positions' ? '/api/positions' : '/api/devices',upstream);
+      if (history) {
+        target.searchParams.set('deviceId',String(historyParams.deviceId));
+        target.searchParams.set('from',historyParams.from);
+        target.searchParams.set('to',historyParams.to);
+      }
+      response = await fetch(target,{
         headers:{Authorization:'Bearer '+TRACCAR_TOKEN,Accept:'application/json'},
         signal:controller.signal
       });
@@ -49,7 +91,14 @@ const server = http.createServer(async (req,res) => {
     if (path.pathname === '/api/vehicles') {
       return json(res,200,{vehicles:filterAllowedVehicles(data,allowedIds)});
     }
-    const positions = filterAllowedPositions(data,allowedIds);
+    const positions = filterAllowedPositions(data,history ? new Set([historyParams.deviceId]) : allowedIds);
+    if (history) {
+      const fromMs=Date.parse(historyParams.from), toMs=Date.parse(historyParams.to);
+      return json(res,200,{deviceId:historyParams.deviceId,positions:positions.filter(p=>{
+        const time=Date.parse(p.fixTime);
+        return time>=fromMs && time<=toMs;
+      }).slice(0,10000)});
+    }
     return json(res,200,{positions});
   } catch { return json(res,502,{error:'Upstream unavailable'}); }
 });

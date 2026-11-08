@@ -40,3 +40,8 @@ test('filters private vehicles and invalid GPS fixes', () => {
 test('rejects GPS fixes without valid timestamp', () => {
   assert.deepEqual(filterAllowedPositions([{deviceId:1,latitude:0,longitude:0,fixTime:'invalid',valid:true}],new Set([1])),[]);
 });
+
+test('history timestamps require explicit timezone',()=>{
+  assert.equal(validateHistoryRange('2026-11-01T00:00:00','2026-11-02T00:00:00'),false);
+  assert.equal(validateHistoryRange('2026-11-01T00:00:00Z','2026-11-02T00:00:00Z'),true);
+});

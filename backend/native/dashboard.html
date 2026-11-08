@@ -1,0 +1,39 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GPS Ecuador · Panel privado</title><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>body{margin:0;background:#0b1526;color:#f0f6ff;font:16px system-ui}header,main{max-width:1100px;margin:auto;padding:18px}header{display:flex;justify-content:space-between;gap:12px;align-items:center}h1{font-size:24px}.panel{background:#14263c;border:1px solid #294760;border-radius:12px;padding:18px;margin:12px 0}input,button,select{padding:12px;border-radius:8px;border:1px solid #54708b;font:inherit}input{background:#0b1526;color:white;width:min(90%,360px)}button{background:#1876d2;color:white;cursor:pointer}#map{height:450px;border-radius:12px;background:#172b3c}.muted{color:#b6c8db}#status{min-height:1.5em}.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}li{padding:8px 0}@media(max-width:600px){#map{height:350px}}</style></head><body><header><h1>🛰️ GPS Ecuador</h1><strong>Panel privado · Datos reales</strong></header><main><section class="panel"><label for="key">Clave privada de acceso (solo administrador)</label><div class="row"><input id="key" type="password" autocomplete="off" placeholder="Clave API del servidor"><button id="connect">Conectar</button><button id="disconnect">Desconectar</button></div><p class="muted">La clave permanece en memoria y no se guarda en el navegador. No usar en computadoras compartidas.</p><p id="status" role="status">Sin conectar</p></section><section class="panel"><h2>Mapa de vehículos</h2><div id="map"></div><p class="muted" id="updated">Esperando conexión.</p></section><section class="panel"><h2>Vehículos</h2><ul id="vehicles"><li>Sin datos.</li></ul></section></main><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>
+const keyInput=document.getElementById('key'),status=document.getElementById('status'),list=document.getElementById('vehicles'),updated=document.getElementById('updated');
+const map=L.map('map').setView([-1.8,-78.2],6);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+const markers=new Map();let token='',timer=null;
+async function refresh(){
+ if(!token)return;
+ try{
+  const headers={Authorization:'Bearer '+token};
+  const [vr,pr]=await Promise.all([fetch('/api/vehicles',{headers,cache:'no-store'}),fetch('/api/positions',{headers,cache:'no-store'})]);
+  if(!vr.ok||!pr.ok)throw Error(vr.status===401||pr.status===401?'Clave incorrecta':'Error de conexión o servidor');
+  const vehicles=(await vr.json()).vehicles,positions=(await pr.json()).positions;
+  const byId=new Map(vehicles.map(v=>[v.id,v.name]));
+  const seen=new Set();
+  list.replaceChildren();
+  for(const v of vehicles){const li=document.createElement('li');li.textContent=v.name+' · '+(v.lastFix?'Última señal: '+new Date(v.lastFix).toLocaleString('es-EC'):'Sin posición');list.append(li);}
+  if(!vehicles.length){const li=document.createElement('li');li.textContent='No hay vehículos registrados.';list.append(li);}
+  for(const p of positions){
+   if(!Number.isFinite(p.latitude)||!Number.isFinite(p.longitude))continue;
+   seen.add(p.deviceId);
+   const label=byId.get(p.deviceId)||'Vehículo '+p.deviceId;
+   const desc=label+' · '+(p.speedKmh??'?')+' km/h · '+new Date(p.fixTime).toLocaleString('es-EC');
+   let marker=markers.get(p.deviceId);
+   if(!marker){marker=L.marker([p.latitude,p.longitude]).addTo(map);markers.set(p.deviceId,marker);}
+   marker.setLatLng([p.latitude,p.longitude]).bindPopup(desc);
+  }
+  for(const [id,m] of markers)if(!seen.has(id)){map.removeLayer(m);markers.delete(id);}
+  status.textContent='Conectado · '+vehicles.length+' vehículos';updated.textContent='Actualizado: '+new Date().toLocaleTimeString('es-EC')+' · Consulta cada 15 segundos.';
+ }catch(e){status.textContent=e.message;}
+}
+document.getElementById('connect').addEventListener('click',()=>{
+ token=keyInput.value.trim();keyInput.value='';if(!token){status.textContent='Introduce la clave';return;}
+ if(timer)clearInterval(timer);refresh();timer=setInterval(refresh,15000);
+});
+document.getElementById('disconnect').addEventListener('click',()=>{
+ token='';if(timer)clearInterval(timer);timer=null;status.textContent='Desconectado';
+ for(const m of markers.values())map.removeLayer(m);markers.clear();list.replaceChildren();updated.textContent='Sin conexión.';
+});
+</script></body></html>
