@@ -16,7 +16,6 @@ function makeFrame({badCount=false,badIo=false}={}){
  u16(0);u16(badIo?2:1);
  u16(1);u16(21);u8(4);
  u16(0);u16(0);u16(0);u16(0);
- u16(0);
  u8(badCount?2:1);
  const payload=b.subarray(0,p),frame=Buffer.alloc(p+12);
  frame.writeUInt32BE(p,4);payload.copy(frame,8);frame.writeUInt32BE(crc16(payload),8+p);
