@@ -20,6 +20,7 @@ class MainActivity : Activity() {
         layout.addView(TextView(this).apply { text = "Compartir ubicación solo con tu autorización. Mientras esté activo, verás una notificación permanente. Esta versión guarda hasta 300 posiciones de forma privada en este teléfono. Aún NO transmite posiciones a otro teléfono." })
         state = TextView(this).apply { text = "Seguimiento desactivado" }
         layout.addView(state)
+        layout.addView(Button(this).apply { text = "Ver vehículos GPS externos"; setOnClickListener { startActivity(Intent(this@MainActivity, FleetActivity::class.java)) } })
         layout.addView(Button(this).apply { text = "Iniciar GPS"; setOnClickListener { requestLocation() } })
         layout.addView(Button(this).apply { text = "Detener GPS"; setOnClickListener { stopService(Intent(this@MainActivity, LocationService::class.java)); state.text = "Seguimiento detenido" } })
         history = TextView(this).apply { text = LocationHistory.summary(this@MainActivity); setPadding(0, 24, 0, 24) }
