@@ -1,0 +1,14 @@
+# Prototype only. Copy to a private deployment directory and configure secrets securely.
+services:
+  gps-api:
+    build: .
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+      TRACCAR_URL: ${TRACCAR_URL:?Set TRACCAR_URL}
+      TRACCAR_TOKEN: ${TRACCAR_TOKEN:?Set TRACCAR_TOKEN}
+      APP_API_KEY: ${APP_API_KEY:?Set APP_API_KEY}
+      ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:?Set ALLOWED_ORIGIN}
+      DEVICE_ALLOWLIST: ${DEVICE_ALLOWLIST:?Set DEVICE_ALLOWLIST}
+    network_mode: host
+    # API binds only to 127.0.0.1; place behind a secure reverse proxy.
