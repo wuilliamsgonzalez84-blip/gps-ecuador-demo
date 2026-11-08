@@ -13,7 +13,9 @@ El código en GitHub **no se instala automáticamente** en Vultr. No ejecutar de
 8. Desplegar primero en red privada, probar API y mapa, después abrir únicamente los puertos indispensables.
 
 ## Receptor
-El receptor está implementado como `receiver.cjs`, pero todavía no está incluido como servicio en `compose.yaml`. Requiere pruebas de extremo a extremo, validación de los paquetes, políticas de deduplicación y revisión de seguridad. No se debe confundir con el receptor de prueba que el usuario ejecutó en Termux.
+El receptor está implementado como `receiver.cjs` y agregado al perfil opcional `gps-receiver` de `compose.yaml`, sin puertos publicados. Requiere pruebas de extremo a extremo, validación de los paquetes, políticas de deduplicación y revisión de seguridad. No se debe confundir con el receptor de prueba que el usuario ejecutó en Termux.
 
 ## Estado
 Mapa y API privados preparados en rama de desarrollo; no conectados todavía al servidor remoto. No existe rastreo comercial operativo.
+
+El perfil opcional no debe activarse en producción hasta verificar el dispositivo, la persistencia, los reintentos y la política de seguridad del puerto TCP.
