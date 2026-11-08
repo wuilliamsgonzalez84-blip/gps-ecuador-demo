@@ -1,0 +1,43 @@
+name: Verificar conexion SSH con Vultr
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ssh-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Comprobar secretos requeridos
+        env:
+          HOST: ${{ secrets.GPS_VULTR_HOST }}
+          USER: ${{ secrets.GPS_VULTR_USER }}
+          SSH_KEY: ${{ secrets.GPS_VULTR_SSH_KEY }}
+          FINGERPRINT: ${{ secrets.GPS_VULTR_HOST_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          for value in "$HOST" "$USER" "$SSH_KEY" "$FINGERPRINT"; do
+            test -n "$value" || { echo "Falta un secreto requerido"; exit 1; }
+          done
+          echo "Cuatro secretos presentes"
+      - name: Verificar identidad del servidor y acceso SSH sin cambios
+        env:
+          HOST: ${{ secrets.GPS_VULTR_HOST }}
+          USER: ${{ secrets.GPS_VULTR_USER }}
+          SSH_KEY: ${{ secrets.GPS_VULTR_SSH_KEY }}
+          FINGERPRINT: ${{ secrets.GPS_VULTR_HOST_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p ~/.ssh
+          trap 'rm -f ~/.ssh/gps_ci_key ~/.ssh/known_hosts ~/.ssh/scanned_hosts' EXIT
+          printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/gps_ci_key
+          chmod 600 ~/.ssh/gps_ci_key
+          ssh-keygen -y -P '' -f ~/.ssh/gps_ci_key >/dev/null || { echo "Clave privada no valida o protegida con frase"; exit 1; }
+          ssh-keyscan -T 10 -t ed25519 "$HOST" 2>/dev/null > ~/.ssh/scanned_hosts
+          test -s ~/.ssh/scanned_hosts || { echo "No se obtuvo clave publica del servidor"; exit 1; }
+          actual=$(ssh-keygen -lf ~/.ssh/scanned_hosts -E sha256 | awk '{print $2}' | head -n 1)
+          expected=$(printf '%s' "$FINGERPRINT" | tr -d '\r\n' | xargs)
+          test "$actual" = "$expected" || { echo "Huella SSH no coincide. Conexion cancelada."; exit 1; }
+          cp ~/.ssh/scanned_hosts ~/.ssh/known_hosts
+          ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'printf "Conexion SSH confirmada; sin cambios en el servidor.\n"'
