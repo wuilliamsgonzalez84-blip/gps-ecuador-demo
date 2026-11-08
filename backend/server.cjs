@@ -46,6 +46,49 @@ app.get('/api/positions/latest',auth,async(_req,res)=>{
     res.json({vehicles:result.rows});
   }catch(e){console.error('DB error:',e.code);res.status(500).json({error:'Error interno'});}
 });
+
+// Read-only fleet status for up to 100 vehicles. No location data is public.
+app.get('/api/fleet/status',auth,async(_req,res)=>{
+ try{
+  const result=await pool.query(`
+    SELECT v.id AS vehicle_id,v.name,
+           p.recorded_at,p.latitude,p.longitude,
+           CASE WHEN p.recorded_at IS NULL THEN 'sin_datos'
+                WHEN p.recorded_at > NOW() + INTERVAL '5 minutes' THEN 'fecha_invalida'
+                WHEN p.recorded_at >= NOW() - INTERVAL '15 minutes' THEN 'reciente'
+                ELSE 'sin_actualizacion' END AS status
+    FROM vehicles v
+    LEFT JOIN LATERAL (
+      SELECT recorded_at,latitude,longitude FROM positions
+      WHERE vehicle_id=v.id ORDER BY recorded_at DESC,id DESC LIMIT 1
+    ) p ON TRUE
+    ORDER BY v.id LIMIT 100
+  `);
+  res.json({vehicles:result.rows,offline_after_minutes:15});
+ }catch(e){console.error('DB error:',e.code);res.status(500).json({error:'Error interno'});}
+});
+// Initial automatic alert feed: computed from stored GPS timestamps.
+// No emails, push notifications, or geofencing are claimed at this stage.
+app.get('/api/alerts',auth,async(_req,res)=>{
+ try{
+  const result=await pool.query(`
+    SELECT v.id AS vehicle_id,v.name,p.recorded_at
+    FROM vehicles v
+    LEFT JOIN LATERAL (
+      SELECT recorded_at FROM positions
+      WHERE vehicle_id=v.id ORDER BY recorded_at DESC,id DESC LIMIT 1
+    ) p ON TRUE
+    WHERE p.recorded_at IS NULL OR p.recorded_at < NOW() - INTERVAL '15 minutes'
+       OR p.recorded_at > NOW() + INTERVAL '5 minutes'
+    ORDER BY v.id LIMIT 100
+  `);
+  res.json({alerts:result.rows.map(v=>({
+    type:v.recorded_at===null?'sin_datos':(new Date(v.recorded_at).getTime()>Date.now()+300000?'fecha_invalida':'sin_actualizacion'),
+    vehicle_id:v.vehicle_id,name:v.name,last_seen:v.recorded_at
+  }))});
+ }catch(e){console.error('DB error:',e.code);res.status(500).json({error:'Error interno'});}
+});
+
 app.get('/api/vehicles/:id/history',auth,async(req,res)=>{
   const id=Number(req.params.id);
   if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'ID de vehículo inválido'});
