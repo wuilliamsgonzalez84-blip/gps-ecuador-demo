@@ -1,0 +1,42 @@
+name: Verificar integracion PostgreSQL en Vultr
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar credenciales SSH sin mostrarlas
+        env:
+          HOST: ${{ secrets.GPS_VULTR_HOST }}
+          USER: ${{ secrets.GPS_VULTR_USER }}
+          KEY: ${{ secrets.GPS_VULTR_SSH_KEY }}
+          FINGERPRINT: ${{ secrets.GPS_VULTR_HOST_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$HOST" || -z "$USER" || -z "$KEY" || -z "$FINGERPRINT" ]]; then
+            echo "::error::Faltan secretos SSH de Vultr; no se realizó ninguna conexión."
+            exit 1
+          fi
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/gps_deploy
+          chmod 600 ~/.ssh/gps_deploy
+          ssh-keygen -y -P '' -f ~/.ssh/gps_deploy >/dev/null
+          ssh-keyscan -T 10 -t ed25519 "$HOST" 2>/dev/null > ~/.ssh/known_hosts
+          test -s ~/.ssh/known_hosts
+          actual="$(ssh-keygen -lf ~/.ssh/known_hosts -E sha256 | awk '{print $2}' | head -1)"
+          test "$actual" = "$FINGERPRINT" || { echo "::error::Huella SSH no coincide"; exit 1; }
+      - name: Comprobar PostgreSQL y tablas reales sin modificar datos
+        env:
+          HOST: ${{ secrets.GPS_VULTR_HOST }}
+          USER: ${{ secrets.GPS_VULTR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/gps_deploy -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 "$USER@$HOST" 'bash -s' < scripts/verificar-integracion-vultr.sh
+      - name: Limpiar llave temporal
+        if: always()
+        run: rm -f ~/.ssh/gps_deploy
