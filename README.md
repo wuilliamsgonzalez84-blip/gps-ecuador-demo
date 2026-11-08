@@ -31,3 +31,15 @@ Plataforma privada para administrar inicialmente hasta 20 vehículos propios, co
 - [Guía de inicio Traccar](https://www.traccar.org/quick-start/)
 
 **Estado:** planificación técnica; ningún servidor está desplegado desde este repositorio y no se ha conectado ningún rastreador físico.
+
+## Dirección de producto: servicio comercial futuro
+
+La plataforma deberá ser **multiempresa (multi-tenant)**: cada cliente pertenece a una organización, y los vehículos, dispositivos, posiciones, alertas y suscripciones se vinculan a esa organización. El administrador general puede gestionar clientes, pero las consultas ordinarias deben aplicar autorización en el servidor y nunca confiar en filtros del navegador.
+
+### Etapas
+
+1. **MVP privado:** autenticación, 20 vehículos propios, un protocolo GPS 4G documentado, recepción de paquetes, mapa, historial, telemetría y copias de seguridad.
+2. **Piloto comercial:** altas de organizaciones, roles administrador/cliente, separación estricta de datos, auditoría, límites por plan y alertas.
+3. **Comercialización:** facturación con proveedor externo, contratos, consentimiento y políticas de privacidad, soporte, monitoreo, retención de datos y escalabilidad.
+
+No implementar un receptor universal de protocolos sin especificaciones ni prometer compatibilidad con todos los GPS. No guardar contraseñas ni claves de dispositivos en el repositorio público. La función de inmovilización remota queda fuera del MVP hasta evaluar controles de seguridad específicos.
