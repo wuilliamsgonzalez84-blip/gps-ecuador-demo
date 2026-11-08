@@ -64,7 +64,7 @@ const server = http.createServer(async (req,res) => {
     const deviceId = Number(path.searchParams.get('deviceId'));
     const from = path.searchParams.get('from');
     const to = path.searchParams.get('to');
-    if ([...path.searchParams.keys()].some(k => !['deviceId','from','to'].includes(k)) ||
+    if (path.searchParams.size !== 3 || [...path.searchParams.keys()].some(k => !['deviceId','from','to'].includes(k)) ||
         !Number.isSafeInteger(deviceId) || !allowedIds.has(deviceId) ||
         !validateHistoryRange(from,to)) return json(res,400,{error:'Invalid or unauthorized history request'});
     historyParams = {deviceId,from,to};
