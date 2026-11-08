@@ -18,4 +18,4 @@ jobs:
       - run: npm test
       - run: npm run check
       - name: Validate backup shell script
-        run: bash -n scripts/backup-postgres.sh
+        run: bash -n scripts/backup-postgres.sh scripts/preflight-vps.sh
