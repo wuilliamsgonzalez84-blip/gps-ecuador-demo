@@ -11,6 +11,7 @@ function startReceiver({ port = 5028, authorize, save, logger = console }) {
     let buffer = Buffer.alloc(0);
     let imei = null;
     let busy = false;
+    let queued = false;
     let closed = false;
     const close = () => { closed = true; socket.destroy(); };
     socket.on('timeout', close);
@@ -19,7 +20,8 @@ function startReceiver({ port = 5028, authorize, save, logger = console }) {
       if (closed) return;
       buffer = Buffer.concat([buffer, chunk]);
       if (buffer.length > 1024 * 1024) return close();
-      void drain();
+      if (busy) queued = true;
+      else void drain();
     });
     async function drain() {
       if (busy || closed) return;
@@ -60,7 +62,7 @@ function startReceiver({ port = 5028, authorize, save, logger = console }) {
         close();
       } finally {
         busy = false;
-        if (!closed && buffer.length > 0 && (imei ? buffer.length >= 8 : buffer.length >= 17)) void drain();
+        if (!closed && queued) { queued = false; void drain(); }
       }
     }
   });
