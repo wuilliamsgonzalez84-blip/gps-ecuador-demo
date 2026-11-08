@@ -40,6 +40,14 @@ const server=net.createServer(socket=>{
             const dev=await client.query('SELECT vehicle_id FROM devices WHERE imei=$1 AND enabled=TRUE FOR UPDATE',[imei]);
             if(dev.rowCount!==1||dev.rows[0].vehicle_id===null) throw Error('Device unassigned or disabled');
             for(const r of records){
+              // Teltonika can report invalid/unfixed GPS data. Acknowledge the
+              // packet but never place invalid coordinates on the map.
+              if(!Number.isFinite(r.latitude)||!Number.isFinite(r.longitude)||
+                 Math.abs(r.latitude)>90||Math.abs(r.longitude)>180||
+                 (r.latitude===0&&r.longitude===0)||
+                 !Number.isFinite(r.timestamp)||
+                 r.timestamp>Date.now()+5*60*1000||
+                 r.timestamp<Date.UTC(2000,0,1))continue;
               await client.query('INSERT INTO positions(vehicle_id,latitude,longitude,recorded_at) VALUES($1,$2,$3,$4)',[dev.rows[0].vehicle_id,r.latitude,r.longitude,new Date(r.timestamp)]);
             }
             await client.query('COMMIT');
