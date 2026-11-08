@@ -8,7 +8,20 @@ services:
       DB_HOST: gps-postgres
     networks:
       - gps-ecuador-net
-    # No public ports until login, permissions and HTTPS are ready.
+    # Keep private until HTTPS reverse proxy and authentication are verified.
+  receiver:
+    profiles: ["gps-receiver"]
+    build: .
+    command: ["node", "receiver.cjs"]
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      DB_HOST: gps-postgres
+      GPS_PORT: "5027"
+    networks:
+      - gps-ecuador-net
+    # No host ports: deliberately inaccessible from the public Internet.
 networks:
   gps-ecuador-net:
     external: true
