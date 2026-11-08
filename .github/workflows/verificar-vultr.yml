@@ -1,0 +1,46 @@
+name: Verificar conexion segura a Vultr
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verificar secretos necesarios
+        env:
+          HOST: ${{ secrets.GPS_VULTR_HOST }}
+          USER: ${{ secrets.GPS_VULTR_USER }}
+          KEY: ${{ secrets.GPS_VULTR_SSH_KEY }}
+          FINGERPRINT: ${{ secrets.GPS_VULTR_HOST_FINGERPRINT }}
+        run: |
+          for value in "$HOST" "$USER" "$KEY" "$FINGERPRINT"; do
+            if [ -z "$value" ]; then
+              echo "::error::Falta configurar un secreto GPS_VULTR_* en GitHub."
+              exit 1
+            fi
+          done
+      - name: Comprobar identidad del servidor y conexion SSH
+        env:
+          HOST: ${{ secrets.GPS_VULTR_HOST }}
+          USER: ${{ secrets.GPS_VULTR_USER }}
+          KEY: ${{ secrets.GPS_VULTR_SSH_KEY }}
+          FINGERPRINT: ${{ secrets.GPS_VULTR_HOST_FINGERPRINT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p ~/.ssh
+          trap 'rm -f ~/.ssh/gps_deploy ~/.ssh/known_hosts' EXIT
+          printf '%s\n' "$KEY" > ~/.ssh/gps_deploy
+          chmod 600 ~/.ssh/gps_deploy
+          ssh-keygen -y -P '' -f ~/.ssh/gps_deploy >/dev/null
+          ssh-keyscan -T 10 -t ed25519 "$HOST" 2>/dev/null > ~/.ssh/known_hosts
+          test -s ~/.ssh/known_hosts
+          actual="$(ssh-keygen -lf ~/.ssh/known_hosts -E sha256 | awk '{print $2}' | head -n 1)"
+          if [ "$actual" != "$FINGERPRINT" ]; then
+            echo "::error::La huella SSH del servidor no coincide; conexion cancelada."
+            exit 1
+          fi
+          ssh -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -i ~/.ssh/gps_deploy "$USER@$HOST" 'printf "Conexion SSH verificada.\n"; systemctl is-active gps-teltonika.service || true'
