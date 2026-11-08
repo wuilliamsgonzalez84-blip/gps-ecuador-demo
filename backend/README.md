@@ -19,3 +19,12 @@ La API no tiene autenticación: **no publicar el puerto 3000 en Internet**. No c
 2. Persistir ubicaciones y asociarlas a dispositivos autorizados.
 3. Añadir cuentas y autorización por vehículo.
 4. Conectar la interfaz y probar con un FMC920 autorizado.
+
+## Receptor Teltonika en desarrollo
+- `receiver.cjs` recibe conexiones TCP y valida IMEI contra la tabla privada `devices`.
+- `teltonika.cjs` interpreta Codec 8, comprueba CRC16 y extrae posición, velocidad y fecha.
+- `npm test` ejecuta pruebas de decodificación. **No se han ejecutado todavía en el servidor.**
+- Codec 8 Extended (8E) no está soportado todavía; los dispositivos deben configurarse y probarse según el codec real que transmitan.
+- El receptor exige una tabla `devices(imei,vehicle_id,enabled)`, y la tabla `positions(vehicle_id,latitude,longitude,recorded_at)`.
+- No abrir el puerto TCP 5027 al público hasta completar pruebas, límites, monitoreo y medidas antiabuso.
+- La configuración Docker del receptor y el despliegue real todavía están pendientes.
