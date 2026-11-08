@@ -20,8 +20,9 @@ class LocationService : Service() {
     private var lastUpdateElapsed = 0L
     private val listener = LocationListener { location ->
         lastUpdateElapsed = SystemClock.elapsedRealtime()
+        LocationHistory.add(this, location)
         // No guardar ni registrar coordenadas sensibles en logs.
-        notifyStatus("GPS activo · última lectura recibida")
+        notifyStatus("GPS activo · posición guardada solo en este teléfono")
     }
 
     override fun onCreate() {
@@ -58,7 +59,7 @@ class LocationService : Service() {
         }
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(
-                NOTIFICATION_ID, notification("Solo lectura local · no transmite coordenadas"),
+                NOTIFICATION_ID, notification("Historial local · no transmite coordenadas"),
                 android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
             )
         } else startForeground(NOTIFICATION_ID, notification("Solo lectura local · no transmite coordenadas"))
@@ -82,7 +83,7 @@ class LocationService : Service() {
             } else {
                 manager.requestLocationUpdates(provider, 5000L, 10f, listener)
                 tracking = true
-                notifyStatus("Esperando señal GPS · no se transmite")
+                notifyStatus("Esperando señal GPS · historial privado")
             }
         } catch (e: SecurityException) {
             stopSelf()
