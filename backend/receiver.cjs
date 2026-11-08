@@ -63,3 +63,6 @@ const server=net.createServer(socket=>{
 });
 server.maxConnections=100;
 server.listen(PORT,'0.0.0.0',()=>console.log('GPS Ecuador Teltonika Codec 8 TCP listening on',PORT));
+
+// Export the listener for isolated integration tests; production behavior is unchanged.
+module.exports=server;
