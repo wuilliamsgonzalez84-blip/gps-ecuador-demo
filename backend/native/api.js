@@ -1,5 +1,6 @@
 // GPS Ecuador native API: private server-to-server access to our own PostgreSQL.
 import http from 'node:http';
+import {readFile} from 'node:fs/promises';
 import {timingSafeEqual} from 'node:crypto';
 import pg from 'pg';
 const {Pool}=pg;
@@ -19,6 +20,9 @@ const auth=req=>{
 export function createNativeApi(db=pool){
   return http.createServer(async(req,res)=>{
     if(req.url==='/health'&&req.method==='GET')return json(res,200,{status:'ok'});
+    if(req.url==='/dashboard'&&req.method==='GET'){
+      try{const html=await readFile(new URL('./dashboard.html',import.meta.url));res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https://*.tile.openstreetmap.org; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"});return res.end(html);}catch{return json(res,503,{error:'dashboard_unavailable'});}
+    }
     if(req.method!=='GET')return json(res,405,{error:'method_not_allowed'});
     if(!auth(req))return json(res,401,{error:'unauthorized'});
     const url=new URL(req.url,'http://localhost');
