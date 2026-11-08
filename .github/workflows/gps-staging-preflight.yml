@@ -1,0 +1,22 @@
+name: GPS Ecuador - comprobacion previa a despliegue
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verificar estructura y sintaxis del backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f backend/package.json
+          test -f backend/teltonika/app.js
+          node --check backend/teltonika/app.js
+          echo "Estructura y sintaxis basica correctas."
+      - name: Aviso de seguridad
+        run: |
+          echo "Este flujo NO despliega, NO accede a Vultr y NO lee secretos."
+          echo "Antes de desplegar se deben verificar ruta, rama, servicios, respaldo y clave de host SSH."
