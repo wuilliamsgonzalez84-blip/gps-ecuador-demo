@@ -53,3 +53,27 @@ async function refresh(){
   }catch(e){status.textContent='No se pudieron consultar las ubicaciones. Comprueba la conexión y el acceso privado.';}
 }
 refresh();setInterval(refresh,15000);
+
+
+async function refreshAlerts(){
+ const status=document.getElementById('alert-status');
+ const list=document.getElementById('alerts');
+ try{
+  const response=await fetch('/api/alerts',{credentials:'same-origin',cache:'no-store'});
+  if(!response.ok)throw Error('Alerts unavailable');
+  const data=await response.json();
+  list.replaceChildren();
+  for(const alert of data.alerts){
+   const li=document.createElement('li');
+   const type=alert.type==='sin_datos'?'Sin datos':alert.type==='fecha_invalida'?'Fecha del GPS incorrecta':'Sin actualización reciente';
+   li.textContent=alert.name+' — '+type;
+   list.append(li);
+  }
+  status.textContent=data.alerts.length?'Vehículos que requieren revisión: '+data.alerts.length:'No hay alertas de conexión';
+ }catch{
+  list.replaceChildren();
+  status.textContent='No se pudieron consultar las alertas';
+ }
+}
+refreshAlerts();
+setInterval(refreshAlerts,60000);
