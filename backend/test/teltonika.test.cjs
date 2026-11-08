@@ -14,7 +14,7 @@ test('reject tampered CRC',()=>{
  assert.throws(()=>parseFrame(f),/CRC mismatch/);
 });
 test('decode one Codec 8 position',()=>{
- const d=Buffer.alloc(2+8+1+15+2+1+4+1);
+ const d=Buffer.alloc(2+8+1+15+1+1+4+1);
  let p=0;d[p++]=8;d[p++]=1;d.writeBigUInt64BE(BigInt(Date.UTC(2024,0,1)),p);p+=8;
  d[p++]=0;d.writeInt32BE(-799000000,p);p+=4;d.writeInt32BE(-23000000,p);p+=4;
  d.writeInt16BE(10,p);p+=2;d.writeUInt16BE(90,p);p+=2;d[p++]=7;d.writeUInt16BE(40,p);p+=2;
