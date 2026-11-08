@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check lib/vehicle-utils.js && node --check lib/alerts.js && node --check lib/tenant-access.js && node --check native/server.js && node --check native/teltonika.js",
+    "check": "node --check server.js && node --check lib/vehicle-utils.js && node --check lib/alerts.js && node --check lib/tenant-access.js && node --check native/server.js && node --check native/teltonika.js && node --check native/features.js",
     "test": "node --test test/*.test.js",
     "native": "node native/server.js"
   },
