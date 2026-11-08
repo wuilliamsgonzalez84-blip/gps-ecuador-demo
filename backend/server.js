@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { filterAllowedVehicles } from './lib/vehicle-utils.js';
+import { filterAllowedVehicles, filterAllowedPositions } from './lib/vehicle-utils.js';
 
 const PORT = Number(process.env.PORT || 8080);
 const TRACCAR_URL = process.env.TRACCAR_URL;
@@ -49,14 +49,7 @@ const server = http.createServer(async (req,res) => {
     if (path.pathname === '/api/vehicles') {
       return json(res,200,{vehicles:filterAllowedVehicles(data,allowedIds)});
     }
-    const positions = data.filter(p => allowedIds.has(p?.deviceId)).map(p => ({
-      deviceId:p.deviceId,
-      latitude:Number.isFinite(p.latitude) && p.latitude >= -90 && p.latitude <= 90 ? p.latitude : null,
-      longitude:Number.isFinite(p.longitude) && p.longitude >= -180 && p.longitude <= 180 ? p.longitude : null,
-      fixTime:typeof p.fixTime === 'string' ? p.fixTime : null,
-      speed:Number.isFinite(p.speed) ? p.speed : null,
-      valid:p.valid === true
-    })).filter(p => p.latitude !== null && p.longitude !== null);
+    const positions = filterAllowedPositions(data,allowedIds);
     return json(res,200,{positions});
   } catch { return json(res,502,{error:'Upstream unavailable'}); }
 });
