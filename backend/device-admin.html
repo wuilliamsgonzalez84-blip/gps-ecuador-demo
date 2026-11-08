@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>GPS Ecuador | Administrar dispositivos</title>
+<link rel="stylesheet" href="/device-admin.css">
+</head>
+<body>
+<header><div class="brand"><span class="logo">◉</span><div><strong>GPS Ecuador</strong><small>Administración privada</small></div></div><a href="/panel">← Volver al mapa</a></header>
+<main>
+<div class="heading"><div><p class="eyebrow">CONTROL DE FLOTA</p><h1>Dispositivos GPS</h1><p>Consulta, activa y asigna los rastreadores de tu flota.</p></div><button id="refresh" type="button">Actualizar</button></div>
+<section class="stats" aria-label="Resumen"><div><span>Total</span><strong id="total">—</strong></div><div><span>Activos</span><strong id="active">—</strong></div><div><span>Desactivados</span><strong id="inactive">—</strong></div></section>
+<div class="toolbar"><label for="search">Buscar dispositivo</label><input id="search" type="search" placeholder="Buscar por IMEI o vehículo" autocomplete="off"></div>
+<p id="status" role="status" aria-live="polite">Cargando dispositivos...</p>
+<div id="devices" class="devices" aria-label="Lista de dispositivos"></div>
+<p class="footnote">Desactivar un GPS impide que el receptor acepte nuevas conexiones de ese dispositivo. Los cambios se guardan solamente al confirmar.</p>
+</main>
+<script src="/device-admin.js" defer></script>
+</body></html>
