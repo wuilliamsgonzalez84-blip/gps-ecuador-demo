@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check lib/vehicle-utils.js && node --check lib/alerts.js && node --check lib/tenant-access.js && node --check native/server.js && node --check native/teltonika.js && node --check native/features.js && node --check native/store.js",
+    "check": "node --check server.js && node --check lib/vehicle-utils.js && node --check lib/alerts.js && node --check lib/tenant-access.js && node --check native/server.js && node --check native/teltonika.js && node --check native/features.js && node --check native/store.js && node --check native/api.js",
     "test": "node --test test/*.test.js",
-    "native": "node native/server.js"
+    "native": "node native/server.js",
+    "native:api": "node native/api.js"
   },
   "engines": {
     "node": ">=20"
