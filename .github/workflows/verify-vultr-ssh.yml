@@ -72,7 +72,17 @@ jobs:
           PY
           ssh-keyscan -T 10 -t ed25519,ecdsa,rsa "$HOST" 2>/dev/null > ~/.ssh/scanned_hosts
           test -s ~/.ssh/scanned_hosts || { echo "No se obtuvo clave publica del servidor"; exit 1; }
-          expected=$(printf '%s' "$FINGERPRINT" | tr -d '\r\n' | xargs)
+          # Accept the SHA256 token alone or the complete ssh-keygen output.
+          # Require exactly one fingerprint; never trust an unverified scanned key.
+          expected=$(python3 - <<'PY'
+          import os, re
+          value = os.environ["FINGERPRINT"].strip()
+          fingerprints = set(re.findall(r"(?<![A-Za-z0-9+/])SHA256:([A-Za-z0-9+/]{43})(?:=)?(?![A-Za-z0-9+/=])", value))
+          if len(fingerprints) != 1:
+              raise SystemExit("La huella guardada debe contener una unica huella SHA256 completa del servidor.")
+          print("SHA256:" + fingerprints.pop())
+          PY
+          )
           : > ~/.ssh/known_hosts
           while IFS= read -r host_key; do
             case "$host_key" in ""|\#*) continue ;; esac
