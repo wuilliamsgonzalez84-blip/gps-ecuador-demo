@@ -34,6 +34,8 @@ app.get('/api/ready',auth,async(_req,res)=>{
   res.status(503).json({error:'Base de datos no disponible'});
  }
 });
+// Administrative device routes are protected by the same private authentication.
+app.use('/api/admin',auth,require('./device-admin.cjs')(pool));
 app.get('/api/vehicles/count',auth,async(_req,res)=>{
   try{const r=await pool.query('SELECT COUNT(*) AS total FROM vehicles');res.json({total:Number(r.rows[0].total)});}
   catch(e){console.error('DB error:',e.code);res.status(500).json({error:'Error interno'});}
