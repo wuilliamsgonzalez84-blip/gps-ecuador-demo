@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import { filterAllowedVehicles, filterAllowedPositions, validateHistoryRange } from './lib/vehicle-utils.js';
 
 const PORT = Number(process.env.PORT || 8080);
@@ -20,6 +21,28 @@ const upstream = new URL(TRACCAR_URL);
 if (upstream.username || upstream.password || upstream.search || upstream.hash) throw Error('Invalid TRACCAR_URL');
 const allowedIds = new Set(DEVICE_ALLOWLIST.map(Number));
 if ([...allowedIds].some(id => !Number.isSafeInteger(id) || id <= 0)) throw Error('Invalid device allowlist');
+const attempts = new Map();
+const LIMIT = 60;
+function allowRequest(ip) {
+  const now = Date.now();
+  if (attempts.size > 10000) {
+    for (const [key, value] of attempts) if (value.reset < now) attempts.delete(key);
+    if (attempts.size > 10000) attempts.clear();
+  }
+  const entry = attempts.get(ip);
+  if (!entry || entry.reset < now) {
+    attempts.set(ip,{count:1,reset:now+60000});
+    return true;
+  }
+  entry.count++;
+  return entry.count <= LIMIT;
+}
+function authorized(header) {
+  if (typeof header !== 'string' || !header.startsWith('Bearer ')) return false;
+  const actual=Buffer.from(header.slice(7));
+  const expected=Buffer.from(APP_API_KEY);
+  return actual.length === expected.length && timingSafeEqual(actual,expected);
+}
 const json = (res, status, data) => {
   res.writeHead(status, {'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Vary':'Origin'});
   res.end(JSON.stringify(data));
@@ -27,10 +50,11 @@ const json = (res, status, data) => {
 const server = http.createServer(async (req,res) => {
   if (req.url === '/health' && req.method === 'GET') return json(res,200,{status:'ok'});
   if (!req.url?.startsWith('/api/')) return json(res,404,{error:'Not found'});
+  if (!allowRequest(req.socket.remoteAddress || 'unknown')) return json(res,429,{error:'Too many requests'});
   if (req.headers.origin && req.headers.origin !== ALLOWED_ORIGIN) return json(res,403,{error:'Origin not allowed'});
   if (req.method !== 'GET') return json(res,405,{error:'Method not allowed'});
   const provided = req.headers.authorization;
-  if (provided !== 'Bearer ' + APP_API_KEY) return json(res,401,{error:'Unauthorized'});
+  if (!authorized(provided)) return json(res,401,{error:'Unauthorized'});
   const path = new URL(req.url,'http://localhost');
   const history = path.pathname === '/api/history';
   if (!['/api/vehicles','/api/positions','/api/history'].includes(path.pathname)) return json(res,404,{error:'Not found'});
