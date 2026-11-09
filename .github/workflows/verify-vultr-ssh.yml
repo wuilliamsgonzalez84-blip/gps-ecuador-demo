@@ -94,6 +94,42 @@ jobs:
           test -s ~/.ssh/known_hosts || { echo "Ninguna clave del servidor coincide con la huella guardada. Conexion cancelada."; exit 1; }
           ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'printf "Conexion SSH confirmada; sin cambios en el servidor.\n"'
 
+          echo "=== Safe PostgreSQL hostname repair ==="
+          ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REPAIR'
+          set -euo pipefail
+          mount=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app"}}{{.Source}}{{end}}{{end}}' gps-api)
+          test -n "$mount" && test -f "$mount/db.js"
+          test "$(docker exec gps-api node -e 'const n=require("net").connect({host:"gps-postgres",port:5432,timeout:3000});n.on("connect",()=>{console.log("yes");n.destroy()});n.on("error",()=>process.exit(1));n.on("timeout",()=>process.exit(1))')" = yes
+          backup="$mount/db.js.backup-before-postgres-host-fix"
+          if [ ! -e "$backup" ]; then cp -p "$mount/db.js" "$backup"; fi
+          python3 - "$mount/db.js" <<'PY'
+          import pathlib,sys
+          p=pathlib.Path(sys.argv[1])
+          s=p.read_text()
+          if '172.17.0.2' in s:
+              updated=s.replace('172.17.0.2','gps-postgres')
+              p.write_text(updated)
+              print("Updated database hostname to Docker DNS")
+          elif 'gps-postgres' in s:
+              print("Database hostname already updated")
+          else:
+              raise SystemExit("Unexpected database configuration: no changes applied")
+          PY
+          docker restart gps-api >/dev/null
+          sleep 3
+          if docker exec gps-api node -e '
+          const http=require("http");const req=http.get({hostname:"127.0.0.1",port:3000,path:"/api/vehicles/count",timeout:8000},res=>{
+            console.log("Vehicle count HTTP",res.statusCode);res.resume();res.on("end",()=>process.exit(res.statusCode===200?0:1));
+          });req.on("timeout",()=>req.destroy(new Error("timeout")));req.on("error",e=>{console.log("Vehicle count error",e.code||e.message);process.exit(1)});
+          '; then
+            echo "Database hostname repair validated: HTTP 200"
+          else
+            echo "Vehicle count still failing; restore original file and restart"
+            cp -p "$backup" "$mount/db.js"
+            docker restart gps-api >/dev/null
+            exit 1
+          fi
+          REPAIR
           echo "=== Diagnostico GPS Ecuador (solo lectura) ==="
           ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
           set -u
