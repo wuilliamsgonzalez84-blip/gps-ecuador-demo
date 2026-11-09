@@ -1,23 +1,19 @@
 #!/usr/bin/env bash
-# Read-only preflight for the existing Vultr GPS Ecuador host.
-# Does not restart containers, run migrations, print secrets or change firewall rules.
+# Read-only checks for GPS Ecuador's existing Vultr containers.
 set -euo pipefail
 cd /opt/gps-ecuador-staging/backend
-echo '== GPS Ecuador: Vultr deployment preflight (read-only) =='
-for bin in docker node git curl; do command -v "$bin" >/dev/null || { echo "MISSING: $bin"; exit 1; }; done
+echo '== GPS Ecuador: read-only preflight =='
+for bin in docker node curl; do command -v "$bin" >/dev/null || { echo "MISSING: $bin"; exit 1; }; done
 echo "Node: $(node --version)"
-echo 'Containers (names and status only):'
-docker ps --format '{{.Names}} | {{.Status}}'
+echo 'Containers:'
+docker ps --format '{{.Names}} | {{.Status}} | {{.Ports}}'
 for name in gps-api gps-postgres; do
- if docker inspect "$name" >/dev/null 2>&1; then
-   docker inspect "$name" --format '{{.Name}} | {{.State.Status}} | network={{.HostConfig.NetworkMode}}'
- fi
+  if docker inspect "$name" >/dev/null 2>&1; then
+    docker inspect "$name" --format '{{.Name}} | status={{.State.Status}} | network={{.HostConfig.NetworkMode}} | ports={{json .NetworkSettings.Ports}}'
+  fi
 done
-echo 'Existing API endpoint status:'
-for endpoint in /api/health /api/vehicles/count; do
- code="$(curl -sS --max-time 3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$endpoint" || true)"
- echo "$endpoint HTTP ${code:-unreachable}"
-done
-echo 'Database tables (table names only):'
-docker exec gps-postgres sh -c 'psql -X -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\\dt public.*"' || echo 'Database inspection unavailable; verify postgres container name.'name FROM pg_catalog.pg_tables WHERE schemaname=\x27public\x27 AND tablename IN (\x27vehicles\x27,\x27positions\x27,\x27gps_accounts\x27,\x27gps_account_vehicles\x27,\x27gps_sessions\x27) ORDER BY tablename"' || echo 'Database inspection unavailable; verify postgres container name.'
-echo '== No changes applied =='
+echo 'API health inside the existing container:'
+docker exec gps-api node -e 'const http=require("http");const port=Number(process.env.PORT||3000);for(const path of ["/api/health","/api/vehicles/count"]){http.get({host:"127.0.0.1",port,path,timeout:3000},r=>{console.log(path,"HTTP",r.statusCode);r.resume()}).on("error",e=>console.log(path,e.code||"unreachable"))}' || echo 'Internal API check unavailable'
+echo 'Database table names:'
+docker exec gps-postgres sh -c 'psql -X -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT tablename FROM pg_tables WHERE schemaname = current_schema() ORDER BY tablename"' || echo 'DB table listing unavailable'
+echo '== Finished without changes =='
