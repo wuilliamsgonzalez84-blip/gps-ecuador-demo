@@ -299,6 +299,50 @@ jobs:
           echo "Docker API IPs:"
           docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}={{$v.IPAddress}} {{end}}' gps-api
           UPSTREAM
+          echo "=== Install restricted HTTPS proxy ==="
+          ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'TLS_INSTALL'
+          set -euo pipefail
+          hostname='45-77-197-18.sslip.io'
+          test "$(getent ahostsv4 "$hostname" | awk 'NR==1 {print $1}')" = '45.77.197.18' || { echo "DNS mismatch, HTTPS setup aborted"; exit 1; }
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:3000/api/health)" = 200 || { echo "Private upstream unavailable"; exit 1; }
+          if ! command -v caddy >/dev/null 2>&1; then
+            DEBIAN_FRONTEND=noninteractive apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq caddy
+          fi
+          install -d -m 755 /etc/caddy
+          if [ -f /etc/caddy/Caddyfile ] && ! grep -q 'GPS_ECUADOR_MANAGED_PROXY' /etc/caddy/Caddyfile; then
+            cp -p /etc/caddy/Caddyfile /etc/caddy/Caddyfile.gps-backup
+          fi
+          cat >/etc/caddy/Caddyfile <<'CADDY'
+          # GPS_ECUADOR_MANAGED_PROXY
+          45-77-197-18.sslip.io {
+              encode zstd gzip
+              @customer path /api/customer/*
+              handle @customer {
+                  reverse_proxy 127.0.0.1:3000
+              }
+              handle {
+                  respond "Not found" 404
+              }
+          }
+          CADDY
+          caddy validate --config /etc/caddy/Caddyfile
+          ufw allow 80/tcp comment 'GPS Ecuador TLS certificate'
+          ufw allow 443/tcp comment 'GPS Ecuador HTTPS'
+          systemctl enable --now caddy
+          systemctl restart caddy
+          echo "Caddy service: $(systemctl is-active caddy)"
+          echo "HTTPS certificate issuance status (redacted):"
+          for i in $(seq 1 12); do
+            code=$(curl --resolve "$hostname:443:127.0.0.1" --max-time 8 -sS -o /dev/null -w '%{http_code}' "https://$hostname/api/customer/vehicles" 2>/dev/null || true)
+            if [ "$code" = 401 ]; then echo 'HTTPS customer route verified: HTTP 401'; break; fi
+            sleep 5
+          done
+          test "${code:-}" = 401 || { echo 'HTTPS not verified yet; inspect Caddy certificate status'; exit 1; }
+          code=$(curl --resolve "$hostname:443:127.0.0.1" --max-time 8 -sS -o /dev/null -w '%{http_code}' "https://$hostname/api/health")
+          test "$code" = 404 || { echo 'Unexpected public route exposure'; exit 1; }
+          echo 'HTTPS proxy verified, internal health endpoint blocked'
+          TLS_INSTALL
           echo "=== Diagnostico GPS Ecuador (solo lectura) ==="
           ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
           set -u
