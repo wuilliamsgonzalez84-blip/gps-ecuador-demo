@@ -93,7 +93,7 @@ class MainActivity : Activity() {
             if (id > 0) authorized[id] = v.optString("name").ifBlank { "Vehículo $id" }
         }
         if (authorized.isEmpty()) return "No tienes vehículos asignados todavía."
-        val output = StringBuilder("Vehículos autorizados: ${authorized.size}\\n\\n")
+        val output = StringBuilder("Vehículos autorizados: ${authorized.size}\n\n")
         val latest = mutableMapOf<Long, org.json.JSONObject>()
         for (i in 0 until positions.length()) {
             val p = positions.optJSONObject(i) ?: continue
@@ -104,10 +104,10 @@ class MainActivity : Activity() {
         }
         for ((id, name) in authorized) {
             val p = latest[id]
-            output.append(name).append("\\n")
+            output.append(name).append("\n")
             if (p == null) output.append("Sin posición registrada")
-            else output.append("Lat: ").append(p.optString("latitude")).append(" · Lon: ").append(p.optString("longitude")).append("\\nÚltima lectura: ").append(p.optString("recordedAt"))
-            output.append("\\n\\n")
+            else output.append("Lat: ").append(p.optString("latitude")).append(" · Lon: ").append(p.optString("longitude")).append("\nÚltima lectura: ").append(p.optString("recordedAt"))
+            output.append("\n\n")
         }
         return output.toString()
     }
