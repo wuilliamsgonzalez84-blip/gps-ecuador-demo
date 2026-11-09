@@ -22,7 +22,7 @@ class MainActivity : Activity() {
         layout.addView(TextView(this).apply { text = "GPS Ecuador"; textSize = 26f })
         layout.addView(TextView(this).apply { text = "Compartir ubicación solo con tu autorización. Mientras esté activo, verás una notificación permanente. Esta versión guarda hasta 300 posiciones de forma privada en este teléfono. Aún NO transmite posiciones a otro teléfono." })
         layout.addView(TextView(this).apply { text = "Acceso privado a vehículos"; textSize = 20f })
-        val serverUrl = EditText(this).apply { hint = "https://tu-servidor-seguro"; inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI }
+        val serverUrl = EditText(this).apply { hint = "Servidor HTTPS"; setText("https://45-77-197-18.sslip.io"); inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI }
         layout.addView(serverUrl)
         val email = EditText(this).apply { hint = "Correo electrónico"; inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS }
         layout.addView(email)
