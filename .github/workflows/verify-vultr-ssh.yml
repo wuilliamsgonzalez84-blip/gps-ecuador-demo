@@ -260,6 +260,18 @@ jobs:
           fi
           echo "Customer routes deployed; no customer accounts created"
           CUSTOMERS
+          echo "=== HTTPS/domain inventory (read-only) ==="
+          ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'HTTPS_AUDIT'
+          set -eu
+          for bin in caddy nginx certbot; do if command -v "$bin" >/dev/null 2>&1; then echo "$bin installed"; else echo "$bin not installed"; fi; done
+          for port in 80 443 3000; do if ss -lnt "( sport = :$port )" | grep -q LISTEN; then echo "port $port listening"; else echo "port $port not listening"; fi; done
+          echo "Proxy service statuses:"
+          for svc in caddy nginx; do systemctl is-active "$svc" 2>/dev/null || true; done
+          echo "Certificates count:"
+          find /etc/letsencrypt/live -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l || true
+          echo "Domain references (no secrets):"
+          for f in /etc/caddy/Caddyfile /etc/nginx/sites-enabled/default; do if [ -f "$f" ]; then grep -E '^[[:space:]]*([a-zA-Z0-9.-]+[[:space:]]*\\{|server_name[[:space:]])' "$f" | head -5 || true; fi; done
+          HTTPS_AUDIT
           echo "=== Diagnostico GPS Ecuador (solo lectura) ==="
           ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
           set -u
