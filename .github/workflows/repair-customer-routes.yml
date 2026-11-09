@@ -148,18 +148,19 @@ jobs:
           if s.count(expected)!=1 or 'reverse_proxy ' not in s or '# GPS_ECUADOR_MANAGED_PROXY' not in s:
               raise SystemExit('Unexpected proxy config; no changes')
           # Only customer endpoints are exposed; keep the rest blocked.
-          s=f'''# GPS_ECUADOR_MANAGED_PROXY
+          s='''# GPS_ECUADOR_MANAGED_PROXY
           45-77-197-18.sslip.io {
               encode zstd gzip
               @customer path /api/customer/*
               handle @customer {
-                  reverse_proxy {ip}:3000
+                  reverse_proxy __GPS_API_BRIDGE__:3000
               }
               handle {
                   respond "Not found" 404
               }
           }
           '''
+          s=s.replace('__GPS_API_BRIDGE__',ip)
           p.write_text(s)
           PY
             caddy validate --config /etc/caddy/Caddyfile
