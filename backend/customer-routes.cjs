@@ -36,6 +36,18 @@ function createCustomerRoutes(db){
   router.get('/positions',async(req,res)=>{
     try{const r=await db.query('SELECT DISTINCT ON (p.vehicle_id) p.vehicle_id,p.latitude,p.longitude,p.recorded_at FROM positions p JOIN customer_vehicle_access a ON a.vehicle_id=p.vehicle_id WHERE a.customer_id=$1 ORDER BY p.vehicle_id,p.recorded_at DESC',[req.customerId]);res.json({positions:r.rows.map(x=>({vehicleId:Number(x.vehicle_id),latitude:x.latitude,longitude:x.longitude,recordedAt:x.recorded_at}))})}catch(e){console.error('Customer positions error',e.code||e.message);res.status(503).json({error:'Service unavailable'})}
   });
+  // Explicit, customer-authorized phone location upload; never accepts another customer's vehicle.
+  router.post('/phone-position',express.json({limit:'2kb'}),async(req,res)=>{
+    const {vehicleId,latitude,longitude,recordedAt}=req.body||{};
+    const id=Number(vehicleId),lat=Number(latitude),lon=Number(longitude);
+    const timestamp=typeof recordedAt==='string'?Date.parse(recordedAt):NaN;
+    if(!Number.isSafeInteger(id)||id<=0||typeof latitude!=='number'||typeof longitude!=='number'||!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180||!Number.isFinite(timestamp)||Math.abs(Date.now()-timestamp)>300000)return res.status(400).json({error:'Invalid position'});
+    try{
+      const r=await db.query('INSERT INTO positions(vehicle_id,latitude,longitude,recorded_at) SELECT $1,$2,$3,$4 WHERE EXISTS (SELECT 1 FROM customer_vehicle_access WHERE customer_id=$5 AND vehicle_id=$1) RETURNING vehicle_id',[id,lat,lon,new Date(timestamp),req.customerId]);
+      if(!r.rowCount)return res.status(403).json({error:'Vehicle not permitted'});
+      return res.status(201).json({stored:true});
+    }catch(e){console.error('Phone position error',e.code||e.message);return res.status(503).json({error:'Service unavailable'})}
+  });
   router.get('/history',async(req,res)=>{
     const vehicleId=Number(req.query.vehicleId),from=String(req.query.from||''),to=String(req.query.to||'');
     const start=Date.parse(from),end=Date.parse(to);
