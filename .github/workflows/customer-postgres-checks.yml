@@ -1,0 +1,82 @@
+name: Customer PostgreSQL migration smoke test
+on:
+  pull_request:
+    paths:
+      - 'backend/migrations/**'
+      - '.github/workflows/customer-postgres-checks.yml'
+  push:
+    branches:
+      - feature/private-client-access
+jobs:
+  migration:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: temporary-ci-password
+          POSTGRES_DB: gps_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d gps_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: temporary-ci-password
+      PGDATABASE: gps_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare minimal vehicle schema in disposable CI database
+        run: |
+          psql -v ON_ERROR_STOP=1 -c 'CREATE TABLE public.vehicles(id bigint PRIMARY KEY);'
+      - name: Apply account migration
+        run: psql -v ON_ERROR_STOP=1 -f backend/migrations/001_customer_access.sql
+      - name: Apply session migration
+        run: psql -v ON_ERROR_STOP=1 -f backend/migrations/002_customer_sessions.sql
+      - name: Verify account separation, expiration and revocation
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO public.vehicles(id) VALUES (101),(202);
+          INSERT INTO public.gps_accounts(email,password_hash,role)
+          VALUES ('a@example.com','scrypt$test','client'),('b@example.com','scrypt$test','client');
+          INSERT INTO public.gps_account_vehicles(account_id,vehicle_id)
+          SELECT a.id, CASE WHEN a.email='a@example.com' THEN 101 ELSE 202 END
+          FROM public.gps_accounts a;
+          DO $$
+          DECLARE a_id bigint; b_id bigint;
+          BEGIN
+            SELECT id INTO a_id FROM public.gps_accounts WHERE email='a@example.com';
+            SELECT id INTO b_id FROM public.gps_accounts WHERE email='b@example.com';
+            IF (SELECT array_agg(vehicle_id) FROM public.gps_account_vehicles WHERE account_id=a_id) <> ARRAY[101::bigint] THEN
+              RAISE EXCEPTION 'Client A isolation failed';
+            END IF;
+            IF (SELECT array_agg(vehicle_id) FROM public.gps_account_vehicles WHERE account_id=b_id) <> ARRAY[202::bigint] THEN
+              RAISE EXCEPTION 'Client B isolation failed';
+            END IF;
+          END $$;
+          INSERT INTO public.gps_sessions(token_hash,account_id,expires_at)
+          SELECT repeat('a',64),id,now()+interval '1 hour' FROM public.gps_accounts WHERE email='a@example.com';
+          UPDATE public.gps_accounts SET active=false WHERE email='a@example.com';
+          DO $$
+          BEGIN
+            IF EXISTS (
+              SELECT 1 FROM public.gps_sessions s JOIN public.gps_accounts a ON a.id=s.account_id
+              WHERE s.token_hash=repeat('a',64) AND s.expires_at>now() AND a.active
+            ) THEN RAISE EXCEPTION 'Disabled account session still authorized'; END IF;
+          END $$;
+          DELETE FROM public.gps_sessions WHERE token_hash=repeat('a',64);
+          DO $$
+          BEGIN
+            IF EXISTS(SELECT 1 FROM public.gps_sessions WHERE token_hash=repeat('a',64)) THEN
+              RAISE EXCEPTION 'Session revocation failed';
+            END IF;
+          END $$;
+          SQL
