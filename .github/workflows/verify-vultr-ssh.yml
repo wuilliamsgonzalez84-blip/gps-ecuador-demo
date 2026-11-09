@@ -288,6 +288,17 @@ jobs:
           echo "Caddy package availability:"
           apt-cache policy caddy 2>/dev/null | grep -E 'Installed:|Candidate:' | head -2 || true
           TLS_PREFLIGHT
+          echo "=== HTTPS upstream reachability (read-only) ==="
+          ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'UPSTREAM'
+          set -eu
+          for host in 127.0.0.1 localhost; do
+            code=$(curl --noproxy '*' -s -o /dev/null -w '%{http_code}' --max-time 3 "http://$host:3000/api/health" || true)
+            echo "$host:3000 health HTTP ${code:-unreachable}"
+          done
+          docker inspect -f 'API network mode: {{.HostConfig.NetworkMode}}' gps-api
+          echo "Docker API IPs:"
+          docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}={{$v.IPAddress}} {{end}}' gps-api
+          UPSTREAM
           echo "=== Diagnostico GPS Ecuador (solo lectura) ==="
           ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
           set -u
