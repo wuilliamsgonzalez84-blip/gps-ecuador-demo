@@ -1,14 +1,23 @@
-# Private client access — staging only
+# Acceso privado de clientes — rama de pruebas
 
-This branch contains an additive PostgreSQL migration and password helper. **It does not enable customer login or change the running server.**
+## Implementado en código (NO desplegado)
+- Tablas de cuentas, asignación de vehículos y sesiones persistentes: migraciones 001 y 002.
+- POST /api/login: correo + contraseña; cookie HttpOnly, Secure, SameSite=Strict con caducidad de 12 horas.
+- POST /api/logout: revoca la sesión.
+- GET /api/me: comprueba sesión.
+- GET /api/vehicles y GET /api/positions: usan el account_id obtenido de la sesión y filtran por gps_account_vehicles.
+- Se mantiene temporalmente el acceso servidor-a-servidor por APP_API_KEY, con DEVICE_ALLOWLIST. Nunca exponer esa clave en el navegador.
+- Las cuentas admin también ven solo los vehículos asignados. La administración de clientes no está implementada.
 
-## Before activation
-1. Back up and inspect the actual PostgreSQL schema on Vultr; verify public.vehicles(id) and migration compatibility.
-2. Use a migration-specific DB role; do not grant schema modification to the API account.
-3. Create the initial admin through a secure provisioning process, not a committed password.
-4. Implement login with throttling, generic error messages, session expiry, HttpOnly Secure SameSite cookies, CSRF defenses where applicable, and HTTPS.
-5. Derive account identity from validated server sessions; never trust a client-provided account ID.
-6. Filter every vehicle, location and history query by the authenticated account's vehicle assignments. Check authorization server-side for every request.
-7. Test cross-account isolation, disabled accounts, session revocation, invalid credentials and rate limits before production.
-8. Do not expose APP_API_KEY in public HTML, JavaScript or Android.
-9. The current backend/server.js remains a trusted server-side API-key prototype; customer login is NOT live.
+## Pendiente antes de producción
+1. Inspeccionar y respaldar el esquema real de PostgreSQL en Vultr. Confirmar public.vehicles(id) y public.positions.
+2. Ejecutar las migraciones en una copia de pruebas; otorgar permisos mínimos para SELECT de cuentas/asignaciones y SELECT/INSERT/DELETE de sesiones.
+3. Crear cuentas con un procedimiento privado y contraseña hash; nunca almacenar claves reales en GitHub.
+4. Verificar Node.js y pruebas automatizadas de login, logout, sesiones caducadas, cuentas desactivadas, y aislamiento entre dos clientes.
+5. Comprobar TLS y proxy HTTPS, cookies y ALLOWED_ORIGIN. El frontend debe estar en el mismo origen o adaptar el proxy; no se habilita CORS con credenciales aquí.
+6. Sustituir limitación de intentos en memoria por mecanismo compartido y resistente a reinicios; revisar políticas de contraseñas y recuperación.
+7. Implementar el formulario privado de acceso, panel real, alta/baja de clientes y auditoría.
+8. Revisar seguridad de la clave de servicio existente y separar roles/permisos.
+9. Fusionar y desplegar solamente después de pruebas y aprobación.
+
+**Estado:** rutas conectadas en código, sin pruebas de integración con Vultr ni cuentas reales creadas.
