@@ -1,0 +1,23 @@
+name: Customer API tests
+on:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/customer-api-tests.yml'
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: node --check server.js
+      - run: node --test test/*.test.js
