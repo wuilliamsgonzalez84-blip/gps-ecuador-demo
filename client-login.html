@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GPS Ecuador | Acceso privado</title>
+<style>
+:root{font-family:system-ui,sans-serif;color-scheme:dark;background:#0c1729;color:#f8fafc}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:18px}
+main{width:min(100%,430px);background:#182a42;border:1px solid #38506b;border-radius:18px;padding:26px}
+h1{margin:0 0 8px}p{color:#cbd5e1;line-height:1.5}label{display:block;margin-top:18px}
+input{width:100%;padding:13px;border:1px solid #8295ac;border-radius:9px;background:#f8fafc;color:#0f172a;font:inherit;margin-top:6px}
+button{padding:13px 18px;border:0;border-radius:9px;background:#34d399;color:#052e16;font-weight:750;font:inherit;cursor:pointer;margin-top:20px;width:100%}
+button:disabled{opacity:.6;cursor:wait}#message{min-height:26px}a{color:#93c5fd}
+</style></head><body><main>
+<h1>🛰️ GPS Ecuador</h1><p>Acceso privado para clientes. Cada cuenta consulta únicamente sus vehículos autorizados.</p>
+<form id="login"><label for="email">Correo electrónico</label><input id="email" name="email" type="email" autocomplete="username" required maxlength="254">
+<label for="password">Contraseña</label><input id="password" name="password" type="password" autocomplete="current-password" required minlength="12">
+<button id="submit" type="submit">Entrar a mi cuenta</button></form>
+<p id="message" role="status" aria-live="polite"></p>
+<section id="account" hidden><p>Sesión iniciada. Tu cuenta está conectada.</p><button id="logout" type="button">Cerrar sesión</button></section>
+<p><small>Esta pantalla requiere que la API esté publicada de forma segura en el mismo dominio. No funciona todavía en la demostración pública.</small></p>
+<a href="index.html">Volver al inicio</a>
+</main>
+<script>
+const form=document.getElementById('login'),msg=document.getElementById('message'),account=document.getElementById('account');
+const submit=document.getElementById('submit');
+async function request(path,options={}) {
+ const response=await fetch(path,{...options,credentials:'same-origin',cache:'no-store'});
+ if(!response.ok)throw Error(response.status===401?'Correo o contraseña incorrectos.':response.status===429?'Demasiados intentos. Inténtalo más tarde.':'No se pudo conectar con el servicio.');
+ return response.json();
+}
+function authenticated(yes) {form.hidden=yes;account.hidden=!yes;}
+form.addEventListener('submit',async e=>{
+ e.preventDefault();submit.disabled=true;msg.textContent='Verificando acceso…';
+ try{
+  await request('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:form.email.value,password:form.password.value})});
+  form.password.value='';authenticated(true);msg.textContent='Acceso autorizado.';
+ }catch(err){msg.textContent=err.message}
+ finally{submit.disabled=false}
+});
+document.getElementById('logout').addEventListener('click',async()=>{
+ try{await request('/api/logout',{method:'POST'});authenticated(false);msg.textContent='Sesión cerrada.'}
+ catch(err){msg.textContent=err.message}
+});
+request('/api/me').then(()=>{authenticated(true);msg.textContent='Sesión activa.'}).catch(()=>authenticated(false));
+</script></body></html>
