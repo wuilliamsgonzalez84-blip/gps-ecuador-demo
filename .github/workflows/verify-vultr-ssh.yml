@@ -130,6 +130,30 @@ jobs:
             exit 1
           fi
           REPAIR
+          echo "=== Privacy and Teltonika checks (read only) ==="
+          ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'PRIVACY'
+          set -u
+          echo "API port mappings:"
+          docker port gps-api 2>/dev/null || true
+          echo "API network mode: $(docker inspect -f '{{.HostConfig.NetworkMode}}' gps-api)"
+          echo "API internal listening ports:"
+          docker exec gps-api node -e '
+          const http=require("http");
+          const paths=["/api/health","/api/vehicles/count"];
+          Promise.all(paths.map(p=>new Promise(resolve=>{
+            const q=http.get({host:"127.0.0.1",port:3000,path:p,timeout:5000},r=>{r.resume();r.on("end",()=>{console.log(p+" HTTP "+r.statusCode);resolve()})});
+            q.on("error",e=>{console.log(p+" error "+e.code);resolve()});
+          })));
+          '
+          echo "Teltonika service: $(systemctl is-active gps-teltonika.service 2>/dev/null || true)"
+          echo "Teltonika port listener:"
+          ss -lnt | grep -E '(:5028[[:space:]]|:5028$)' || echo "Port 5028 not listening"
+          echo "Teltonika unit configuration keys (values hidden):"
+          systemctl show gps-teltonika.service -p ExecStart -p WorkingDirectory -p User --no-pager | sed -E 's/ExecStart=.*/ExecStart=[configured, hidden]/'
+          echo "Recent Teltonika journal levels:"
+          journalctl -u gps-teltonika.service -n 15 --no-pager -o cat 2>/dev/null | grep -Ei 'error|fail|listen|started' | sed -E 's/[0-9]{10,}/[redacted]/g' | tail -8 || true
+          echo "Note: Authentication and authorization of location endpoints need explicit protected-route tests."
+          PRIVACY
           echo "=== Diagnostico GPS Ecuador (solo lectura) ==="
           ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
           set -u
