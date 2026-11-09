@@ -177,6 +177,14 @@ jobs:
           });
           '
           AUTH
+          echo "=== Database schema preflight for private tracking routes ==="
+          ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'SCHEMA'
+          set -euo pipefail
+          docker exec gps-api node -e '
+          const db=require("./db");
+          db.query("SELECT table_name,column_name,data_type FROM information_schema.columns WHERE table_schema=$1 AND table_name=ANY($2::text[]) ORDER BY table_name,ordinal_position",["public",["vehicles","positions"]]).then(r=>{for(const x of r.rows)console.log(x.table_name+"."+x.column_name+" "+x.data_type);return db.end()}).catch(e=>{console.log("Schema preflight failed",e.code);process.exit(1)})
+          '
+          SCHEMA
           echo "=== Diagnostico GPS Ecuador (solo lectura) ==="
           ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
           set -u
