@@ -299,7 +299,18 @@ jobs:
           echo "Docker API IPs:"
           docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}={{$v.IPAddress}} {{end}}' gps-api
           UPSTREAM
-          echo "=== Caddy TLS failure diagnostic (read-only) ==="
+          echo "=== Route comparison (read-only) ==="
+          ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'ROUTES'
+          set -eu
+          for endpoint in /api/customer/vehicles /api/customer/positions /api/customer/login /api/health; do
+            direct=$(curl --noproxy '*' -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:3000$endpoint")
+            proxy=$(curl --noproxy '*' -s -o /dev/null -w '%{http_code}' "https://45-77-197-18.sslip.io$endpoint")
+            echo "$endpoint direct=$direct https=$proxy"
+          done
+          echo "Caddy active config:"
+          sed -n '1,40p' /etc/caddy/Caddyfile
+          ROUTES
+          echo "=== Caddy TLS failure diagnostic (read-only) ==="          echo "=== Caddy TLS failure diagnostic (read-only) ==="
           ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'TLS_DIAG'
           set -eu
           echo "Service: $(systemctl is-active caddy)"
