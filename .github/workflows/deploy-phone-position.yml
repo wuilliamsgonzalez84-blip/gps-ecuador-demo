@@ -68,7 +68,7 @@ jobs:
           stamp=$(date +%Y%m%d%H%M%S)
           backup="$appdir/customer-routes.cjs.before-phone-position-$stamp"
           cp -p "$appdir/customer-routes.cjs" "$backup"
-          candidate="$appdir/customer-routes.cjs.phone-position-candidate"
+          candidate="$appdir/customer-routes.phone-position-candidate.cjs"
           curl -fsSL --max-time 20 'https://raw.githubusercontent.com/wuilliamsgonzalez84-blip/gps-ecuador-demo/b8e66cf5509f44dc883b7b27f2bf83fa5a628d42/backend/customer-routes.cjs' -o "$candidate"
           node --check "$candidate"
           grep -Fq "router.post('/phone-position'" "$candidate"
