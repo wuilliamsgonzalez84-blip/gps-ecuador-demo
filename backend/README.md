@@ -1,19 +1,20 @@
-# GPS Ecuador API — private prototype
+# GPS Ecuador — independent API prototype
 
-Node.js 20+ API scaffold. **Not production-ready or multi-tenant.** No live positions or history are exposed yet.
+Node.js 20+ read-only API; no Traccar dependency. Not yet production-ready.
 
-## Features
-- Health check: GET /health
-- Authenticated GET /api/vehicles: fetches Traccar device metadata, filtered by an explicit server-side allowlist.
-- Listens on 127.0.0.1 only; place behind a properly configured HTTPS reverse proxy.
-- Does not expose Traccar credentials to the public frontend.
+## Endpoints
+- GET /health (local health check)
+- GET /api/vehicles (authorized vehicles in local snapshot)
+- GET /api/positions (authorized valid positions in local snapshot)
+
+The API listens on 127.0.0.1 and requires a server-side bearer token for /api routes. It reads a JSON snapshot from GPS_SNAPSHOT_FILE. A separate trusted Teltonika receiver/storage pipeline must produce this file atomically; this repository does not yet connect that pipeline. Example snapshot structure: {"vehicles":[],"positions":[]}. Missing or malformed snapshots return HTTP 503, never invented positions.
 
 ## Run
-1. Install Node.js 20+ on a trusted server.
-2. Set the variables from `.env.example` securely (do not commit secrets).
-3. `node server.js`
-4. Test locally: `curl http://127.0.0.1:8080/health`.
+1. Install Node.js 20+.
+2. Configure environment variables from .env.example outside the public repository.
+3. Create a private snapshot file with the structure above, writable only by the trusted receiver and readable by the API.
+4. Run `node backend/server.js` from repository root or `node server.js` from backend.
+5. Check `curl http://127.0.0.1:8080/health`.
 
-**Security limitations:** APP_API_KEY is a server-to-server secret, not a browser login. Never put it in public JavaScript, GitHub Pages, or a mobile app. This starter is not ready to connect the public demo. Add real user authentication, authorization per organization, rate limiting, audit logging, reverse proxy TLS, and tests before exposing it. Configure Traccar with least-privilege access; verify your Traccar version supports bearer tokens.
-
-The demo UI remains separate until a secure authenticated backend is deployed.
+## Security and next steps
+APP_API_KEY is for server-to-server requests, **not** a browser or mobile app. Do not expose it in GitHub Pages. Before production: implement authenticated user sessions, authorization per organization, PostgreSQL storage, receiver ingestion, atomic snapshot updates (or replace snapshots with database queries), TLS reverse proxy, rate limiting, audit logs, and tests. Do not expose raw device identifiers or coordinates publicly. The frontend demo still uses fictitious data.
