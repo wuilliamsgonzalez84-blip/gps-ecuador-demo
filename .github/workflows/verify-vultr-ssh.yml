@@ -238,9 +238,12 @@ jobs:
           import sys
           p=Path(sys.argv[1]);s=p.read_text()
           line="app.use('/api/customer', require('./customer-routes.cjs')(pool));"
-          if line not in s:
-              if "app.listen(" not in s or "const pool = require('./db')" not in s: raise SystemExit("Unexpected API structure")
-              p.write_text(s.replace("app.listen(",line+"\napp.listen(",1))
+          old="app.use('/api', require('./private-routes.cjs')(pool));"
+          if "app.listen(" not in s or "const pool = require('./db')" not in s: raise SystemExit("Unexpected API structure")
+          s=s.replace(line+"\n","")
+          if old not in s: raise SystemExit("Private routes mount not found")
+          s=s.replace(old,line+"\n"+old,1)
+          p.write_text(s)
           PY
           docker exec gps-api node --check /app/server.js
           docker restart gps-api >/dev/null
