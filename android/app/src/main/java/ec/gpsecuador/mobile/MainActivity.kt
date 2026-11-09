@@ -10,9 +10,15 @@ import android.widget.EditText
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.ScrollView
+import org.json.JSONArray
 
 class MainActivity : Activity() {
     private var customerToken: String? = null
+    private var customerApi: CustomerApi? = null
+    private lateinit var customerResults: TextView
+    private lateinit var refreshButton: Button
+    private lateinit var logoutButton: Button
     private lateinit var customerStatus: TextView
     private lateinit var state: TextView
     private lateinit var history: TextView
@@ -42,16 +48,24 @@ class MainActivity : Activity() {
                     val token = api.login(mail, secret)
                     val vehicles = api.vehicles(token).optJSONArray("vehicles")
                     val positions = api.positions(token).optJSONArray("positions")
-                    customerToken = token
-                    runOnUiThread { password.text.clear(); customerStatus.text = "Sesión iniciada. Vehículos autorizados: ${vehicles?.length() ?: 0}. Posiciones disponibles: ${positions?.length() ?: 0}." }
+                    runOnUiThread { customerApi = api; customerToken = token; password.text.clear(); customerStatus.text = "Sesión iniciada correctamente"; customerResults.text = formatTracking(vehicles, positions); refreshButton.isEnabled = true; logoutButton.isEnabled = true }
                 } catch (e: Exception) { runOnUiThread { customerStatus.text = "No se pudo conectar: ${e.message}" } }
             }.start()
         } })
-        layout.addView(Button(this).apply { text = "Cerrar sesión privada"; setOnClickListener {
+        customerResults = TextView(this).apply { text = "Inicia sesión para consultar tus vehículos."; setPadding(0, 12, 0, 12) }
+        layout.addView(customerResults)
+        refreshButton = Button(this).apply { text = "Actualizar vehículos y ubicaciones"; isEnabled = false; setOnClickListener { refreshTracking() } }
+        layout.addView(refreshButton)
+        logoutButton = Button(this).apply { text = "Cerrar sesión privada"; isEnabled = false; setOnClickListener {
             val token = customerToken
+            val api = customerApi
             customerToken = null
+            customerApi = null
+            refreshButton.isEnabled = false
+            logoutButton.isEnabled = false
+            customerResults.text = ""
             customerStatus.text = "Sesión cerrada en este teléfono"
-            if (token != null) Thread { try { CustomerApi(serverUrl.text.toString().trim()).logout(token) } catch (_: Exception) {} }.start()
+            if (token != null && api != null) Thread { try { api.logout(token) } catch (_: Exception) {} }.start()
         } })
         state = TextView(this).apply { text = "Seguimiento desactivado" }
         layout.addView(state)
@@ -68,7 +82,60 @@ class MainActivity : Activity() {
                 .setPositiveButton("Borrar") { _, _ -> LocationHistory.clear(this@MainActivity); history.text = LocationHistory.summary(this@MainActivity) }
                 .show()
         } })
-        setContentView(layout)
+        setContentView(ScrollView(this).apply { addView(layout) })
+    }
+    private fun formatTracking(vehicles: JSONArray?, positions: JSONArray?): String {
+        if (vehicles == null || positions == null) return "Respuesta inesperada del servidor."
+        val authorized = mutableMapOf<Long, String>()
+        for (i in 0 until vehicles.length()) {
+            val v = vehicles.optJSONObject(i) ?: continue
+            val id = v.optLong("id", -1)
+            if (id > 0) authorized[id] = v.optString("name").ifBlank { "Vehículo $id" }
+        }
+        if (authorized.isEmpty()) return "No tienes vehículos asignados todavía."
+        val output = StringBuilder("Vehículos autorizados: ${authorized.size}\\n\\n")
+        val latest = mutableMapOf<Long, org.json.JSONObject>()
+        for (i in 0 until positions.length()) {
+            val p = positions.optJSONObject(i) ?: continue
+            val id = p.optLong("vehicleId", -1)
+            val lat = p.optDouble("latitude", Double.NaN)
+            val lon = p.optDouble("longitude", Double.NaN)
+            if (authorized.containsKey(id) && lat.isFinite() && lon.isFinite() && lat in -90.0..90.0 && lon in -180.0..180.0) latest[id] = p
+        }
+        for ((id, name) in authorized) {
+            val p = latest[id]
+            output.append(name).append("\\n")
+            if (p == null) output.append("Sin posición registrada")
+            else output.append("Lat: ").append(p.optString("latitude")).append(" · Lon: ").append(p.optString("longitude")).append("\\nÚltima lectura: ").append(p.optString("recordedAt"))
+            output.append("\\n\\n")
+        }
+        return output.toString()
+    }
+    private fun refreshTracking() {
+        val api = customerApi ?: return
+        val token = customerToken ?: return
+        refreshButton.isEnabled = false
+        customerStatus.text = "Actualizando ubicaciones…"
+        Thread {
+            try {
+                val vehicles = api.vehicles(token).optJSONArray("vehicles")
+                val positions = api.positions(token).optJSONArray("positions")
+                runOnUiThread {
+                    if (customerToken == token) {
+                        customerResults.text = formatTracking(vehicles, positions)
+                        customerStatus.text = "Ubicaciones actualizadas"
+                        refreshButton.isEnabled = true
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    if (customerToken == token) {
+                        customerStatus.text = "Error al actualizar: ${e.message}"
+                        refreshButton.isEnabled = true
+                    }
+                }
+            }
+        }.start()
     }
     override fun onResume() {
         super.onResume()
