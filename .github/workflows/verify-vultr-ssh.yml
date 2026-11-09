@@ -128,6 +128,21 @@ jobs:
           const timer=setTimeout(()=>{console.log("DB query timeout after 12s");process.exit(1)},12000);
           Promise.resolve(pool.query("SELECT COUNT(*) AS total FROM vehicles")).then(r=>{clearTimeout(timer);console.log("DB COUNT:",r.rows?.[0]?.total);process.exit(0)}).catch(e=>{clearTimeout(timer);console.log("DB ERROR:",e.code||e.message);process.exit(1)});
           ' || true
+          echo "=== PostgreSQL connection diagnostics (no secrets) ==="
+          docker exec gps-api node -e '
+          const db=require("./db");const opts=db.options||{};
+          const safeHost=String(opts.host||"").replace(/[^a-zA-Z0-9_.-]/g,"?");
+          console.log("PG host:",safeHost||"(default)","port:",opts.port||"(default)","database configured:",!!opts.database,"user configured:",!!opts.user);
+          const net=require("net");const host=opts.host||"localhost",port=Number(opts.port||5432);
+          const s=net.connect({host,port,timeout:4000});
+          s.on("connect",()=>{console.log("PostgreSQL TCP reachable");s.destroy()});
+          s.on("timeout",()=>{console.log("PostgreSQL TCP timeout");s.destroy()});
+          s.on("error",e=>console.log("PostgreSQL TCP error:",e.code||e.message));
+          '
+          echo "Docker networks:"
+          docker inspect -f '{{.Name}} {{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' gps-api gps-postgres
+          echo "Postgres recent errors (filtered):"
+          docker logs --tail 30 gps-postgres 2>&1 | grep -Ei 'error|fatal|could not|timeout|ready to accept' | tail -10 || true
           echo "Teltonika service active: $(systemctl is-active gps-teltonika.service 2>/dev/null || true)"
           echo "Privacy/authentication: NOT verified by this read-only diagnostic"
           exit "$fail"
