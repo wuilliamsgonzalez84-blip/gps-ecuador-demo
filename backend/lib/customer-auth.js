@@ -30,5 +30,5 @@ export async function allowedVehicleIds(pool,accountId) {
  );
  return new Set(result.rows.map(row=>Number(row.vehicle_id)));
 }
-// This module does NOT expose a login endpoint. Add rate-limited authentication,
+// Login is implemented separately in server.js with
 // server-side sessions, secure cookies and HTTPS before enabling customer access.
