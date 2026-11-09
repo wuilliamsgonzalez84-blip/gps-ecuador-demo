@@ -15,7 +15,7 @@ button:disabled{opacity:.6;cursor:wait}#message{min-height:26px}a{color:#93c5fd}
 <label for="password">Contraseña</label><input id="password" name="password" type="password" autocomplete="current-password" required minlength="12">
 <button id="submit" type="submit">Entrar a mi cuenta</button></form>
 <p id="message" role="status" aria-live="polite"></p>
-<section id="account" hidden><p>Sesión iniciada. Tu cuenta está conectada.</p><button id="logout" type="button">Cerrar sesión</button></section>
+<section id="account" hidden><p>Sesión iniciada. Estos son tus vehículos autorizados:</p><p id="vehicles" role="status">Cargando vehículos…</p><button id="refresh" type="button">Actualizar mis vehículos</button><button id="logout" type="button">Cerrar sesión</button></section>
 <p><small>Esta pantalla requiere que la API esté publicada de forma segura en el mismo dominio. No funciona todavía en la demostración pública.</small></p>
 <a href="index.html">Volver al inicio</a>
 </main>
@@ -27,7 +27,25 @@ async function request(path,options={}) {
  if(!response.ok)throw Error(response.status===401?'Correo o contraseña incorrectos.':response.status===429?'Demasiados intentos. Inténtalo más tarde.':'No se pudo conectar con el servicio.');
  return response.json();
 }
-function authenticated(yes) {form.hidden=yes;account.hidden=!yes;}
+function authenticated(yes) {form.hidden=yes;account.hidden=!yes;if(yes)loadVehicles();}
+async function loadVehicles() {
+ const view=document.getElementById('vehicles');
+ view.textContent='Consultando vehículos autorizados…';
+ try {
+  const data=await request('/api/vehicles');
+  const vehicles=Array.isArray(data.vehicles)?data.vehicles:[];
+  view.replaceChildren();
+  if(!vehicles.length){view.textContent='No tienes vehículos asignados todavía.';return;}
+  const list=document.createElement('ul');
+  for(const vehicle of vehicles){
+   const item=document.createElement('li');
+   item.textContent=String(vehicle.name||'Vehículo')+' · '+(vehicle.lastUpdate?'Última posición: '+new Date(vehicle.lastUpdate).toLocaleString():'Sin posiciones registradas');
+   list.append(item);
+  }
+  view.append(list);
+ }catch(err){view.textContent='No se pudieron cargar los vehículos. '+err.message;}
+}
+document.getElementById('refresh').addEventListener('click',loadVehicles);
 form.addEventListener('submit',async e=>{
  e.preventDefault();submit.disabled=true;msg.textContent='Verificando acceso…';
  try{
