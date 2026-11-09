@@ -37,7 +37,7 @@ const attempts = new Map();
 const tokenHash = token => createHash('sha256').update(token).digest('hex');
 const cookie = (name, value, maxAge) => name + '=' + value + '; Path=/api; HttpOnly; Secure; SameSite=Strict; Max-Age=' + maxAge;
 function sessionToken(req) {
-  const match = /(?:^|;\\s*)gps_session=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie || '');
+  const match = /(?:^|;\s*)gps_session=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie || '');
   return match?.[1] || null;
 }
 async function readJson(req) {
