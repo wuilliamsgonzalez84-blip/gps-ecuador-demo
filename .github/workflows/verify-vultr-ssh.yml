@@ -272,6 +272,22 @@ jobs:
           echo "Domain references (no secrets):"
           for f in /etc/caddy/Caddyfile /etc/nginx/sites-enabled/default; do if [ -f "$f" ]; then grep -E '^[[:space:]]*([a-zA-Z0-9.-]+[[:space:]]*\\{|server_name[[:space:]])' "$f" | head -5 || true; fi; done
           HTTPS_AUDIT
+          echo "=== HTTPS preflight (read-only) ==="
+          ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'TLS_PREFLIGHT'
+          set -eu
+          echo "Public DNS for temporary TLS hostname:"
+          getent ahostsv4 45-77-197-18.sslip.io | awk '{print $1}' | sort -u | head -3 || true
+          echo "Public IP via local route:"
+          ip -4 route get 1.1.1.1 | sed -E 's/src [0-9.]+/src [redacted]/g' | head -1 || true
+          echo "Firewall UFW:"
+          ufw status 2>/dev/null | head -12 || true
+          echo "Firewall nftables:"
+          if command -v nft >/dev/null 2>&1; then nft list ruleset 2>/dev/null | grep -E 'dport (80|443|3000)|policy (drop|accept)' | head -12 || true; fi
+          echo "API Docker port bindings:"
+          docker inspect -f '{{json .HostConfig.PortBindings}}' gps-api
+          echo "Caddy package availability:"
+          apt-cache policy caddy 2>/dev/null | grep -E 'Installed:|Candidate:' | head -2 || true
+          TLS_PREFLIGHT
           echo "=== Diagnostico GPS Ecuador (solo lectura) ==="
           ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
           set -u
