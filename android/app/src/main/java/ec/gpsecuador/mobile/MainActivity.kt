@@ -10,6 +10,9 @@ import android.widget.EditText
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.location.LocationManager
+import android.os.CancellationSignal
+import java.time.Instant
 
 class MainActivity : Activity() {
     private var customerToken: String? = null
@@ -52,6 +55,37 @@ class MainActivity : Activity() {
             customerToken = null
             customerStatus.text = "Sesión cerrada en este teléfono"
             if (token != null) Thread { try { CustomerApi(serverUrl.text.toString().trim()).logout(token) } catch (_: Exception) {} }.start()
+        } })
+        val uploadVehicleId = EditText(this).apply { hint = "ID del vehículo autorizado"; inputType = android.text.InputType.TYPE_CLASS_NUMBER }
+        layout.addView(uploadVehicleId)
+        layout.addView(Button(this).apply { text = "Enviar UNA posición al servidor"; setOnClickListener {
+            val token = customerToken
+            val id = uploadVehicleId.text.toString().toIntOrNull()
+            if (token == null || id == null || id <= 0) { customerStatus.text = "Inicia sesión e indica el ID autorizado"; return@setOnClickListener }
+            if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                customerStatus.text = "Concede primero el permiso de ubicación"; return@setOnClickListener
+            }
+            val lm = getSystemService(LOCATION_SERVICE) as LocationManager
+            val provider = when {
+                lm.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+                lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+                else -> null
+            }
+            if (provider == null) { customerStatus.text = "Activa la ubicación"; return@setOnClickListener }
+            customerStatus.text = "Obteniendo posición actual..."
+            try {
+                lm.getCurrentLocation(provider, CancellationSignal(), mainExecutor) { loc ->
+                    if (loc == null) { customerStatus.text = "No se obtuvo una posición actual"; return@getCurrentLocation }
+                    customerStatus.text = "Enviando posición autorizada..."
+                    val url = serverUrl.text.toString().trim()
+                    Thread {
+                        try {
+                            CustomerApi(url).sendPhonePosition(token, id, loc.latitude, loc.longitude, Instant.ofEpochMilli(loc.time).toString())
+                            runOnUiThread { customerStatus.text = "Posición enviada y aceptada por el servidor" }
+                        } catch (e: Exception) { runOnUiThread { customerStatus.text = "Envío fallido: ${e.message}" } }
+                    }.start()
+                }
+            } catch (e: Exception) { customerStatus.text = "Error de ubicación: ${e.message}" }
         } })
         state = TextView(this).apply { text = "Seguimiento desactivado" }
         layout.addView(state)
