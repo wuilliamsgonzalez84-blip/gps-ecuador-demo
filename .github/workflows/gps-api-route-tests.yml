@@ -1,0 +1,21 @@
+name: GPS API route tests
+on:
+  push:
+    paths:
+      - 'backend/integration/**'
+      - '.github/workflows/gps-api-route-tests.yml'
+  workflow_dispatch:
+jobs:
+  route-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax and behavior tests (no secrets, no SSH)
+        run: |
+          node --check backend/integration/legacy-postgres-queries.cjs
+          node --check backend/integration/gps-routes.cjs
+          node --check backend/integration/prepare-vultr-routes.cjs
+          node backend/integration/test-gps-routes.cjs
