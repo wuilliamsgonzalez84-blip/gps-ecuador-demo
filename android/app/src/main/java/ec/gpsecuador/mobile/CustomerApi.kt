@@ -36,5 +36,7 @@ class CustomerApi(private val baseUrl: String) {
         request("/api/customer/login", "POST", JSONObject().put("email", email).put("password", password)).getString("token")
     fun vehicles(token: String): JSONObject = request("/api/customer/vehicles", token = token)
     fun positions(token: String): JSONObject = request("/api/customer/positions", token = token)
+    fun sendPhonePosition(token: String, vehicleId: Int, latitude: Double, longitude: Double, recordedAt: String): JSONObject =
+        request("/api/customer/phone-position", "POST", JSONObject().put("vehicleId", vehicleId).put("latitude", latitude).put("longitude", longitude).put("recordedAt", recordedAt), token)
     fun logout(token: String) { request("/api/customer/logout", "POST", token = token) }
 }
