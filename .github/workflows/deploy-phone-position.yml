@@ -1,0 +1,104 @@
+name: Deploy and verify phone position endpoint on Vultr
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/deploy-phone-position.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: gps-customer-route-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Connect with existing verified SSH credentials
+        env:
+          HOST: ${{ secrets.GPS_VULTR_HOST }}
+          USER: ${{ secrets.GPS_VULTR_USER }}
+          SSH_KEY: ${{ secrets.GPS_VULTR_SSH_KEY }}
+          FINGERPRINT: ${{ secrets.GPS_VULTR_HOST_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p ~/.ssh
+          trap 'rm -f ~/.ssh/gps_ci_key ~/.ssh/known_hosts ~/.ssh/scanned_hosts' EXIT
+          python3 - <<'PY'
+          import os,re,base64,subprocess
+          from pathlib import Path
+          raw=os.environ["SSH_KEY"].strip().lstrip("\ufeff").replace("\\r\\n","\n").replace("\\n","\n").replace("\r","")
+          if raw[:1] in ("'",'"') and raw[-1:] == raw[:1]: raw=raw[1:-1].strip()
+          if "-----BEGIN " not in raw:
+              raw=base64.b64decode(re.sub(r"\s+","",raw),validate=True).decode("ascii")
+          m=re.fullmatch(r"\s*-----BEGIN (OPENSSH PRIVATE KEY|RSA PRIVATE KEY|EC PRIVATE KEY|PRIVATE KEY|ENCRYPTED PRIVATE KEY)-----\s*(.*?)\s*-----END \1-----\s*",raw,re.S)
+          if not m: raise SystemExit("Existing SSH secret malformed; no server changes")
+          kind,body=m.groups()
+          if "Proc-Type:" in body: normalized=raw.strip()+"\n"
+          else:
+              body=re.sub(r"\s+","",body)
+              base64.b64decode(body,validate=True)
+              normalized="-----BEGIN "+kind+"-----\n"+"\n".join(body[i:i+64] for i in range(0,len(body),64))+"\n-----END "+kind+"-----\n"
+          p=Path.home()/".ssh/gps_ci_key"
+          p.write_text(normalized);p.chmod(0o600)
+          subprocess.run(["ssh-keygen","-y","-P","","-f",str(p)],stdout=subprocess.DEVNULL,check=True)
+          PY
+          ssh-keyscan -T 10 -t ed25519,ecdsa,rsa "$HOST" 2>/dev/null > ~/.ssh/scanned_hosts
+          test -s ~/.ssh/scanned_hosts
+          expected=$(python3 - <<'PY'
+          import os,re
+          matches=set(re.findall(r"SHA256:([A-Za-z0-9+/]{43})(?:=)?",os.environ["FINGERPRINT"]))
+          if len(matches)!=1: raise SystemExit("Invalid pinned SSH fingerprint")
+          print("SHA256:"+matches.pop())
+          PY
+          )
+          : > ~/.ssh/known_hosts
+          while IFS= read -r key; do
+            test -n "$key" || continue
+            actual=$(printf '%s\n' "$key" | ssh-keygen -lf - -E sha256 | awk '{print $2}')
+            if [ "$actual" = "$expected" ]; then printf '%s\n' "$key" >> ~/.ssh/known_hosts; fi
+          done < ~/.ssh/scanned_hosts
+          test -s ~/.ssh/known_hosts
+          ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          appdir=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app"}}{{.Source}}{{end}}{{end}}' gps-api)
+          test -n "$appdir" && test -f "$appdir/customer-routes.cjs" && test -f "$appdir/server.js"
+          grep -Fq "app.use('/api/customer', require('./customer-routes.cjs')(pool));" "$appdir/server.js"
+          stamp=$(date +%Y%m%d%H%M%S)
+          backup="$appdir/customer-routes.cjs.before-phone-position-$stamp"
+          cp -p "$appdir/customer-routes.cjs" "$backup"
+          candidate="$appdir/customer-routes.cjs.phone-position-candidate"
+          curl -fsSL --max-time 20 'https://raw.githubusercontent.com/wuilliamsgonzalez84-blip/gps-ecuador-demo/b8e66cf5509f44dc883b7b27f2bf83fa5a628d42/backend/customer-routes.cjs' -o "$candidate"
+          node --check "$candidate"
+          grep -Fq "router.post('/phone-position'" "$candidate"
+          cp -p "$candidate" "$appdir/customer-routes.cjs"
+          rollback() { cp -p "$backup" "$appdir/customer-routes.cjs"; docker restart gps-api >/dev/null; echo "ROLLED BACK"; }
+          trap rollback ERR
+          docker exec gps-api node --check /app/customer-routes.cjs
+          docker restart gps-api >/dev/null
+          sleep 4
+          docker exec -i gps-api node - <<'JS'
+          const http=require('http');
+          const tests=[
+            ['GET','/api/health',null,200],
+            ['GET','/api/customer/vehicles',null,401],
+            ['GET','/api/customer/positions',null,401],
+            ['POST','/api/customer/phone-position',JSON.stringify({vehicleId:1,latitude:0,longitude:0,recordedAt:new Date().toISOString()}),401],
+            ['POST','/api/customer/login',JSON.stringify({email:'invalid@example.invalid',password:'invalid'}),401]
+          ];
+          (async()=>{
+            for(const [method,path,body,expected] of tests){
+              const code=await new Promise((resolve,reject)=>{
+                const q=http.request({hostname:'127.0.0.1',port:3000,path,method,timeout:7000,headers:body?{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body)}:{}},r=>{r.resume();r.on('end',()=>resolve(r.statusCode))});
+                q.on('error',reject);q.on('timeout',()=>q.destroy(new Error('timeout')));q.end(body);
+              });
+              console.log(method,path,'HTTP',code,'expected',expected);
+              if(code!==expected)throw Error('Unexpected status');
+            }
+            console.log('New phone-position route mounted; unauthorized requests denied.');
+          })().catch(e=>{console.error(e.message);process.exitCode=1});
+          JS
+          trap - ERR
+          echo "DEPLOYED: phone-position endpoint installed with backup"
+          REMOTE
