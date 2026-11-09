@@ -31,7 +31,7 @@ function authenticated(yes) {form.hidden=yes;account.hidden=!yes;}
 form.addEventListener('submit',async e=>{
  e.preventDefault();submit.disabled=true;msg.textContent='Verificando acceso…';
  try{
-  await request('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:form.email.value,password:form.password.value})});
+  await request('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('email').value,password:document.getElementById('password').value})});
   form.password.value='';authenticated(true);msg.textContent='Acceso autorizado.';
  }catch(err){msg.textContent=err.message}
  finally{submit.disabled=false}
