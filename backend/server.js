@@ -61,7 +61,18 @@ async function sessionAccount(req) {
   return result.rows[0] || null;
 }
 const server = http.createServer(async (req,res) => {
-  if (req.url === '/health' && req.method === 'GET') return json(res,200,{status:'ok'});
+  if ((req.url === '/health' || req.url === '/api/health') && req.method === 'GET') return json(res,200,{status:'ok'});
+  // Keep the existing aggregate-count endpoint available during migration.
+  // It never exposes individual vehicles or coordinates.
+  if (req.url === '/api/vehicles/count' && req.method === 'GET') {
+    try {
+      const result = await pool.query('SELECT COUNT(*)::int AS total FROM public.vehicles');
+      return json(res,200,{total:result.rows[0].total});
+    } catch (err) {
+      console.error('Vehicle count query failed:',err.message);
+      return json(res,503,{error:'Database unavailable'});
+    }
+  }
   if (!req.url?.startsWith('/api/')) return json(res,404,{error:'Not found'});
   if (req.headers.origin && req.headers.origin !== ALLOWED_ORIGIN) return json(res,403,{error:'Origin not allowed'});
   const path = new URL(req.url,'http://localhost');
