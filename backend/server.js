@@ -63,7 +63,7 @@ const server = http.createServer(async (req,res) => {
       `SELECT DISTINCT ON (vehicle_id) vehicle_id, latitude, longitude, recorded_at
          FROM public.positions
         WHERE vehicle_id = ANY($1::bigint[])
-        ORDER BY vehicle_id, recorded_at DESC LIMIT 1`,
+        ORDER BY vehicle_id, recorded_at DESC`,
       [ids]
     );
     const positions = result.rows.map(r => ({
