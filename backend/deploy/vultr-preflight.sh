@@ -19,5 +19,5 @@ for endpoint in /api/health /api/vehicles/count; do
  echo "$endpoint HTTP ${code:-unreachable}"
 done
 echo 'Database tables (table names only):'
-docker exec gps-postgres sh -c 'psql -X -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname=\x27public\x27 AND tablename IN (\x27vehicles\x27,\x27positions\x27,\x27gps_accounts\x27,\x27gps_account_vehicles\x27,\x27gps_sessions\x27) ORDER BY tablename"' || echo 'Database inspection unavailable; verify postgres container name.'
+docker exec gps-postgres sh -c 'psql -X -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\\dt public.*"' || echo 'Database inspection unavailable; verify postgres container name.'name FROM pg_catalog.pg_tables WHERE schemaname=\x27public\x27 AND tablename IN (\x27vehicles\x27,\x27positions\x27,\x27gps_accounts\x27,\x27gps_account_vehicles\x27,\x27gps_sessions\x27) ORDER BY tablename"' || echo 'Database inspection unavailable; verify postgres container name.'
 echo '== No changes applied =='
