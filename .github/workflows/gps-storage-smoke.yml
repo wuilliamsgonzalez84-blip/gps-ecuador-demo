@@ -1,0 +1,36 @@
+name: GPS Ecuador - prueba segura de almacenamiento
+on:
+  push:
+    paths:
+      - '.github/workflows/gps-storage-smoke.yml'
+  workflow_dispatch:
+jobs:
+  storage-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare SSH key and verify host fingerprint
+        env:
+          SSH_KEY: ${{ secrets.GPS_VULTR_SSH_KEY }}
+          HOST: ${{ secrets.GPS_VULTR_HOST }}
+          EXPECTED: ${{ secrets.GPS_VULTR_HOST_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keygen -y -P '' -f ~/.ssh/id_ed25519 >/dev/null
+          ssh-keyscan -T 10 -t ed25519 "$HOST" 2>/dev/null > ~/.ssh/known_hosts
+          test -s ~/.ssh/known_hosts
+          actual=$(ssh-keygen -lf ~/.ssh/known_hosts -E sha256 | awk '{print $2}')
+          expected=$(printf '%s\n' "$EXPECTED" | grep -oE 'SHA256:[A-Za-z0-9+/=]+' | head -1)
+          test -n "$expected"
+          test "$actual" = "$expected"
+      - name: Execute rollback-only PostgreSQL test on Vultr
+        env:
+          HOST: ${{ secrets.GPS_VULTR_HOST }}
+          USER: ${{ secrets.GPS_VULTR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "$USER@$HOST" 'bash -s' < backend/tests/storage-smoke.sh
