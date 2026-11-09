@@ -53,3 +53,22 @@ test('position endpoint blocks disallowed origins',async()=>{
   const r=await fetch('http://127.0.0.1:18888/api/positions',{headers:{Origin:'https://other.example',Authorization:'Bearer test-secret'}});
   assert.equal(r.status,403);
 });
+
+test('customer routes refuse access until credentials are configured', async () => {
+  const r = await fetch('http://127.0.0.1:18888/api/customer/vehicles');
+  assert.equal(r.status,503);
+  assert.equal((await r.json()).error,'Customer login not configured');
+});
+test('customer login cannot use owner API key', async () => {
+  const r = await fetch('http://127.0.0.1:18888/api/customer/login',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({email:'test@example.com',password:'test-secret'})
+  });
+  assert.equal(r.status,503);
+});
+test('customer routes reject unknown origins', async () => {
+  const r = await fetch('http://127.0.0.1:18888/api/customer/positions',{
+    headers:{Origin:'https://evil.example'}
+  });
+  assert.equal(r.status,403);
+});
