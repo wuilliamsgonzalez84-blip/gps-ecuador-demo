@@ -221,6 +221,42 @@ jobs:
           fi
           echo "Private tracking routes verified"
           PRIVATE
+          echo "=== Deploy customer-isolated tracking accounts ==="
+          ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'CUSTOMERS'
+          set -euo pipefail
+          appdir=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app"}}{{.Source}}{{end}}{{end}}' gps-api)
+          test -n "$appdir" && test -f "$appdir/server.js"
+          curl --fail --silent --show-error --location --max-time 15 'https://raw.githubusercontent.com/wuilliamsgonzalez84-blip/gps-ecuador-demo/fa54dd7217a52900537db06f9843d5c3e450ef56/backend/customer-routes.cjs' -o "$appdir/customer-routes.cjs.tmp"
+          curl --fail --silent --show-error --location --max-time 15 'https://raw.githubusercontent.com/wuilliamsgonzalez84-blip/gps-ecuador-demo/fa54dd7217a52900537db06f9843d5c3e450ef56/backend/sql/customer-accounts.sql' -o "$appdir/customer-accounts.sql.tmp"
+          mv "$appdir/customer-routes.cjs.tmp" "$appdir/customer-routes.cjs"
+          mv "$appdir/customer-accounts.sql.tmp" "$appdir/customer-accounts.sql"
+          docker exec gps-api node --check /app/customer-routes.cjs
+          docker exec gps-api node -e 'const fs=require("fs"),db=require("./db");db.query(fs.readFileSync("/app/customer-accounts.sql","utf8")).then(()=>{console.log("Customer schema migrated successfully");return db.end()}).catch(e=>{console.error("Customer schema migration failed",e.code||e.message);process.exit(1)})'
+          test -f "$appdir/server.js.backup-before-customers" || cp -p "$appdir/server.js" "$appdir/server.js.backup-before-customers"
+          python3 - "$appdir/server.js" <<'PY'
+          from pathlib import Path
+          import sys
+          p=Path(sys.argv[1]);s=p.read_text()
+          line="app.use('/api/customer', require('./customer-routes.cjs')(pool));"
+          if line not in s:
+              if "app.listen(" not in s or "const pool = require('./db')" not in s: raise SystemExit("Unexpected API structure")
+              p.write_text(s.replace("app.listen(",line+"\napp.listen(",1))
+          PY
+          docker exec gps-api node --check /app/server.js
+          docker restart gps-api >/dev/null
+          sleep 3
+          if ! docker exec gps-api node -e '
+          const http=require("http");
+          const cases=[["GET","/api/customer/vehicles",401],["GET","/api/customer/positions",401],["GET","/api/customer/history",401],["POST","/api/customer/login",400],["GET","/api/health",200]];
+          (async()=>{for(const [method,path,expected] of cases){const status=await new Promise((resolve,reject)=>{const q=http.request({hostname:"127.0.0.1",port:3000,path,method,timeout:5000},r=>{r.resume();r.on("end",()=>resolve(r.statusCode))});q.on("error",reject);q.on("timeout",()=>q.destroy(new Error("timeout")));q.end()});console.log(method,path,"HTTP",status);if(status!==expected)process.exitCode=1}})().catch(e=>{console.error(e.code||e.message);process.exit(1)});
+          '; then
+            cp -p "$appdir/server.js.backup-before-customers" "$appdir/server.js"
+            docker restart gps-api >/dev/null
+            echo "Customer route verification failed; original API restored"
+            exit 1
+          fi
+          echo "Customer routes deployed; no customer accounts created"
+          CUSTOMERS
           echo "=== Diagnostico GPS Ecuador (solo lectura) ==="
           ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
           set -u
