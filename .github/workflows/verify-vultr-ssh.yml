@@ -143,6 +143,14 @@ jobs:
           docker inspect -f '{{.Name}} {{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' gps-api gps-postgres
           echo "Postgres recent errors (filtered):"
           docker logs --tail 30 gps-postgres 2>&1 | grep -Ei 'error|fatal|could not|timeout|ready to accept' | tail -10 || true
+          echo "=== Compare configured database endpoint safely ==="
+          docker inspect -f 'postgres network addresses: {{range $k,$v := .NetworkSettings.Networks}}{{$k}}={{$v.IPAddress}} {{end}}' gps-postgres
+          docker exec gps-api node -e '
+          const o=require("./db").options||{};
+          console.log("API database host:",o.host,"port:",o.port,"database present:",!!o.database,"user present:",!!o.user);
+          '
+          docker exec gps-postgres sh -c 'printf "POSTGRES_USER configured: "; test -n "$POSTGRES_USER" && echo yes || echo no; printf "POSTGRES_DB configured: "; test -n "$POSTGRES_DB" && echo yes || echo no'
+          docker inspect -f 'API restart policy: {{.HostConfig.RestartPolicy.Name}} image: {{.Config.Image}}' gps-api
           echo "Teltonika service active: $(systemctl is-active gps-teltonika.service 2>/dev/null || true)"
           echo "Privacy/authentication: NOT verified by this read-only diagnostic"
           exit "$fail"
