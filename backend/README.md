@@ -1,20 +1,19 @@
-# GPS Ecuador — independent API prototype
+# GPS Ecuador — PostgreSQL API (independent, no Traccar)
 
-Node.js 20+ read-only API; no Traccar dependency. Not yet production-ready.
+Read-only Node.js 20+ API for the existing Vultr PostgreSQL database. Code in GitHub is not automatically deployed. Do not overwrite the running Teltonika receiver.
 
-## Endpoints
-- GET /health (local health check)
-- GET /api/vehicles (authorized vehicles in local snapshot)
-- GET /api/positions (authorized valid positions in local snapshot)
+## Routes
+- GET /health (process health only; not a DB check)
+- GET /api/vehicles (allowlisted vehicle IDs, most recent timestamp)
+- GET /api/positions (latest position per allowlisted vehicle)
 
-The API listens on 127.0.0.1 and requires a server-side bearer token for /api routes. It reads a JSON snapshot from GPS_SNAPSHOT_FILE. A separate trusted Teltonika receiver/storage pipeline must produce this file atomically; this repository does not yet connect that pipeline. Example snapshot structure: {"vehicles":[],"positions":[]}. Missing or malformed snapshots return HTTP 503, never invented positions.
+Uses public.vehicles(id) and public.positions(vehicle_id,latitude,longitude,recorded_at), verified on the server. Vehicle names are temporary labels until the real vehicles schema is inspected. No speed or online status is inferred. Routes require server-side bearer APP_API_KEY; do not embed it in the Android application or public site. Requests with an Origin header must match ALLOWED_ORIGIN.
 
-## Run
-1. Install Node.js 20+.
-2. Configure environment variables from .env.example outside the public repository.
-3. Create a private snapshot file with the structure above, writable only by the trusted receiver and readable by the API.
-4. Run `node backend/server.js` from repository root or `node server.js` from backend.
-5. Check `curl http://127.0.0.1:8080/health`.
+## Before deploying
+1. Back up the running API configuration and inspect the existing gps-api container, its network, and its environment. Do not replace it blindly.
+2. Run npm install on a deployment copy and set the required variables in a private environment file (see .env.example). PGHOST must be reachable from the API runtime; a Docker service hostname may differ from the host's PGHOST.
+3. Grant the API database user SELECT on vehicles and positions only. Set DEVICE_ALLOWLIST to real authorized vehicle IDs.
+4. Test on localhost with authorized and unauthorized requests and verify results against PostgreSQL before switching traffic.
+5. Deploy behind TLS reverse proxy with authenticated per-user sessions and rate limiting before public access. The API key is for a trusted server-side intermediary, not clients.
 
-## Security and next steps
-APP_API_KEY is for server-to-server requests, **not** a browser or mobile app. Do not expose it in GitHub Pages. Before production: implement authenticated user sessions, authorization per organization, PostgreSQL storage, receiver ingestion, atomic snapshot updates (or replace snapshots with database queries), TLS reverse proxy, rate limiting, audit logs, and tests. Do not expose raw device identifiers or coordinates publicly. The frontend demo still uses fictitious data.
+This API is not yet connected to the mobile frontend. End-to-end Teltonika packet decoding and storage still need verification. Do not treat the /health endpoint alone as proof of database readiness.
