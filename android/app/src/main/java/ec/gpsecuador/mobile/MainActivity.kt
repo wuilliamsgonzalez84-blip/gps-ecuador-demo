@@ -6,11 +6,14 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.EditText
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 
 class MainActivity : Activity() {
+    private var customerToken: String? = null
+    private lateinit var customerStatus: TextView
     private lateinit var state: TextView
     private lateinit var history: TextView
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -18,6 +21,38 @@ class MainActivity : Activity() {
         val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(32, 48, 32, 32) }
         layout.addView(TextView(this).apply { text = "GPS Ecuador"; textSize = 26f })
         layout.addView(TextView(this).apply { text = "Compartir ubicación solo con tu autorización. Mientras esté activo, verás una notificación permanente. Esta versión guarda hasta 300 posiciones de forma privada en este teléfono. Aún NO transmite posiciones a otro teléfono." })
+        layout.addView(TextView(this).apply { text = "Acceso privado a vehículos"; textSize = 20f })
+        val serverUrl = EditText(this).apply { hint = "https://tu-servidor-seguro"; inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI }
+        layout.addView(serverUrl)
+        val email = EditText(this).apply { hint = "Correo electrónico"; inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS }
+        layout.addView(email)
+        val password = EditText(this).apply { hint = "Contraseña"; inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD }
+        layout.addView(password)
+        customerStatus = TextView(this).apply { text = "Sin sesión iniciada" }
+        layout.addView(customerStatus)
+        layout.addView(Button(this).apply { text = "Entrar y consultar mis vehículos"; setOnClickListener {
+            val url = serverUrl.text.toString().trim()
+            val mail = email.text.toString().trim()
+            val secret = password.text.toString()
+            if (url.isBlank() || mail.isBlank() || secret.isBlank()) { customerStatus.text = "Completa HTTPS, correo y contraseña"; return@setOnClickListener }
+            customerStatus.text = "Conectando..."
+            Thread {
+                try {
+                    val api = CustomerApi(url)
+                    val token = api.login(mail, secret)
+                    val vehicles = api.vehicles(token).optJSONArray("vehicles")
+                    val positions = api.positions(token).optJSONArray("positions")
+                    customerToken = token
+                    runOnUiThread { password.text.clear(); customerStatus.text = "Sesión iniciada. Vehículos autorizados: ${vehicles?.length() ?: 0}. Posiciones disponibles: ${positions?.length() ?: 0}." }
+                } catch (e: Exception) { runOnUiThread { customerStatus.text = "No se pudo conectar: ${e.message}" } }
+            }.start()
+        } })
+        layout.addView(Button(this).apply { text = "Cerrar sesión privada"; setOnClickListener {
+            val token = customerToken
+            customerToken = null
+            customerStatus.text = "Sesión cerrada en este teléfono"
+            if (token != null) Thread { try { CustomerApi(serverUrl.text.toString().trim()).logout(token) } catch (_: Exception) {} }.start()
+        } })
         state = TextView(this).apply { text = "Seguimiento desactivado" }
         layout.addView(state)
         layout.addView(Button(this).apply { text = "Iniciar GPS"; setOnClickListener { requestLocation() } })
