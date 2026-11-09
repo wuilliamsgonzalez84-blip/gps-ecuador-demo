@@ -185,6 +185,42 @@ jobs:
           db.query("SELECT table_name,column_name,data_type FROM information_schema.columns WHERE table_schema=$1 AND table_name=ANY($2::text[]) ORDER BY table_name,ordinal_position",["public",["vehicles","positions"]]).then(r=>{for(const x of r.rows)console.log(x.table_name+"."+x.column_name+" "+x.data_type);return db.end()}).catch(e=>{console.log("Schema preflight failed",e.code);process.exit(1)})
           '
           SCHEMA
+          echo "=== Install authenticated private tracking routes ==="
+          ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'PRIVATE'
+          set -euo pipefail
+          appdir=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app"}}{{.Source}}{{end}}{{end}}' gps-api)
+          test -n "$appdir" && test -f "$appdir/server.js"
+          umask 077
+          curl --fail --silent --show-error --location --max-time 15 'https://raw.githubusercontent.com/wuilliamsgonzalez84-blip/gps-ecuador-demo/abd52a673e10419af2ccce7acc96bdd487da37aa/backend/private-routes.cjs' -o "$appdir/private-routes.cjs.tmp"
+          mv "$appdir/private-routes.cjs.tmp" "$appdir/private-routes.cjs"
+          docker exec gps-api node --check /app/private-routes.cjs
+          test -f "$appdir/.private-tracking-token" || openssl rand -hex 32 > "$appdir/.private-tracking-token"
+          test -f "$appdir/.private-tracking-vehicles" || printf '1\n' > "$appdir/.private-tracking-vehicles"
+          test -f "$appdir/server.js.backup-before-private-routes" || cp -p "$appdir/server.js" "$appdir/server.js.backup-before-private-routes"
+          python3 - "$appdir/server.js" <<'PY'
+          from pathlib import Path
+          import sys
+          p=Path(sys.argv[1]); s=p.read_text()
+          line="app.use('/api', require('./private-routes.cjs')(pool));"
+          if line not in s:
+              if "app.listen(" not in s or "const pool = require('./db')" not in s: raise SystemExit("Unexpected API structure")
+              p.write_text(s.replace("app.listen(",line+"\napp.listen(",1))
+          PY
+          docker exec gps-api node --check /app/server.js
+          docker restart gps-api >/dev/null
+          sleep 3
+          if ! docker exec gps-api node -e '
+          const http=require("http"),fs=require("fs"),token=fs.readFileSync("/app/.private-tracking-token","utf8").trim();
+          const test=(path,auth)=>new Promise((resolve,reject)=>{const q=http.get({hostname:"127.0.0.1",port:3000,path,headers:auth?{Authorization:"Bearer "+token}:{},timeout:5000},r=>{r.resume();r.on("end",()=>resolve(r.statusCode))});q.on("error",reject);q.on("timeout",()=>q.destroy(new Error("timeout")))});
+          (async()=>{let ok=true;for(const [p,a,expected] of [["/api/vehicles",false,401],["/api/positions",false,401],["/api/history",false,401],["/api/vehicles",true,200],["/api/positions",true,200],["/api/history?vehicleId=999999&from=2026-11-01T00%3A00%3A00Z&to=2026-11-02T00%3A00%3A00Z",true,403],["/api/history?vehicleId=1&from=2026-11-01T00%3A00%3A00Z&to=2026-11-02T00%3A00%3A00Z",true,200]]){const status=await test(p,a);console.log(p.split("?")[0],a?"authorized":"anonymous",status,"expected",expected);if(status!==expected)ok=false}process.exit(ok?0:1)})().catch(e=>{console.error(e.code||e.message);process.exit(1)});
+          '; then
+            cp -p "$appdir/server.js.backup-before-private-routes" "$appdir/server.js"
+            docker restart gps-api >/dev/null
+            echo "Validation failed; restored original API"
+            exit 1
+          fi
+          echo "Private tracking routes verified"
+          PRIVATE
           echo "=== Diagnostico GPS Ecuador (solo lectura) ==="
           ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
           set -u
