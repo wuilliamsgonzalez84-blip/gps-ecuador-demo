@@ -1,45 +1,28 @@
 # GPS Ecuador
 
-Aplicación de demostración de rastreo vehicular. **Actualmente el panel principal usa datos ficticios y no rastrea vehículos reales.** No confundir los enlaces de prueba de teléfono con una plataforma de producción.
+Plataforma propia de rastreo GPS, **sin Traccar**. El panel público actual es una demostración con datos ficticios; todavía no representa rastreo real.
 
-## Objetivo
+## Estado comprobado
+- GitHub Actions verificó correctamente la conexión SSH con Vultr (ejecución #6).
+- `backend/server.js` es una API Node.js independiente de solo lectura que consulta un archivo JSON privado de posiciones y vehículos.
+- La integración del receptor Teltonika con almacenamiento persistente y la API **todavía debe verificarse y completarse**.
+- La aplicación pública no debe recibir claves privadas ni credenciales de servidor.
 
-Plataforma privada para administrar inicialmente hasta 20 vehículos propios, con rastreadores GPS 4G autorizados y conexión a un servidor de rastreo.
+## Arquitectura objetivo
+1. Receptor Teltonika FMC920 en Vultr, con validación del identificador y protocolo AVL.
+2. PostgreSQL para dispositivos, vehículos, posiciones e historial; migraciones y copias de seguridad.
+3. API propia HTTPS con autenticación de usuarios y autorización por vehículo.
+4. Panel y Android conectados a la API; mapa e historial reales.
+5. Alertas, monitoreo, retención de datos y separación por organización para futura comercialización.
 
-## Arquitectura propuesta (pendiente de implementar)
+## API provisional
+`backend/README.md` describe el prototipo independiente: `/health`, `/api/vehicles`, `/api/positions`. Consume un snapshot privado con estructura `{"vehicles":[],"positions":[]}`; **no recibe directamente paquetes GPS ni los guarda en base de datos**. La aplicación todavía no debe presentarse como operativa para rastreo real.
 
-- **Frontend:** sitio de este repositorio, actualmente demostrativo.
-- **Backend GPS:** Traccar autohospedado en un VPS Linux, con base de datos persistente y copias de seguridad.
-- **Acceso:** HTTPS, usuarios autenticados y autorización por vehículo; no publicar coordenadas, claves ni identificadores en GitHub Pages.
-- **Dispositivos:** modelos GPS 4G compatibles con protocolos de Traccar, SIM con datos y cobertura en el país donde operen.
-- **Integración:** backend propio que consulte la API de Traccar y entregue únicamente los vehículos autorizados al frontend; nunca exponer credenciales administrativas de Traccar en JavaScript público.
+## Pendientes prioritarios
+1. Verificar los servicios realmente instalados en Vultr sin borrar configuraciones existentes.
+2. Conectar el receptor Teltonika al almacenamiento persistente y comprobar datos reales con un dispositivo autorizado.
+3. Implementar autenticación de usuarios, permisos, HTTPS, registros y pruebas.
+4. Sustituir el panel demostrativo por consultas autenticadas a la API.
+5. Probar primero un dispositivo y después ampliar hasta 20 vehículos.
 
-## Pendientes antes de operar
-
-1. Aprobar el precio del VPS y desplegarlo en Vultr u otro proveedor.
-2. Instalar Traccar y una base de datos adecuada para producción (MySQL o TimescaleDB), HTTPS, firewall, copias de seguridad y actualizaciones.
-3. Configurar usuarios, acceso privado y recuperación de cuenta.
-4. Elegir un modelo concreto de rastreador 4G; abrir únicamente el puerto TCP/UDP requerido por su protocolo.
-5. Crear el servicio seguro de integración con Traccar y sustituir los datos ficticios del panel.
-6. Probar primero un vehículo con consentimiento, luego ampliar hasta 20 y comprobar capacidad real.
-7. Definir retención de historial, permisos, alertas y tratamiento de datos de ubicación.
-
-## Referencias oficiales
-
-- [Instalación Traccar en VPS](https://www.traccar.org/install-vps/)
-- [Docker Traccar](https://www.traccar.org/docker/)
-- [Guía de inicio Traccar](https://www.traccar.org/quick-start/)
-
-**Estado:** planificación técnica; ningún servidor está desplegado desde este repositorio y no se ha conectado ningún rastreador físico.
-
-## Dirección de producto: servicio comercial futuro
-
-La plataforma deberá ser **multiempresa (multi-tenant)**: cada cliente pertenece a una organización, y los vehículos, dispositivos, posiciones, alertas y suscripciones se vinculan a esa organización. El administrador general puede gestionar clientes, pero las consultas ordinarias deben aplicar autorización en el servidor y nunca confiar en filtros del navegador.
-
-### Etapas
-
-1. **MVP privado:** autenticación, 20 vehículos propios, un protocolo GPS 4G documentado, recepción de paquetes, mapa, historial, telemetría y copias de seguridad.
-2. **Piloto comercial:** altas de organizaciones, roles administrador/cliente, separación estricta de datos, auditoría, límites por plan y alertas.
-3. **Comercialización:** facturación con proveedor externo, contratos, consentimiento y políticas de privacidad, soporte, monitoreo, retención de datos y escalabilidad.
-
-No implementar un receptor universal de protocolos sin especificaciones ni prometer compatibilidad con todos los GPS. No guardar contraseñas ni claves de dispositivos en el repositorio público. La función de inmovilización remota queda fuera del MVP hasta evaluar controles de seguridad específicos.
+La inmovilización remota queda fuera del MVP hasta evaluar controles de seguridad adicionales.
