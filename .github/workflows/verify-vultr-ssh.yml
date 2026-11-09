@@ -343,6 +343,16 @@ jobs:
           test "$code" = 404 || { echo 'Unexpected public route exposure'; exit 1; }
           echo 'HTTPS proxy verified, internal health endpoint blocked'
           TLS_INSTALL
+          echo "=== Caddy TLS failure diagnostic (read-only) ==="
+          ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'TLS_DIAG'
+          set -eu
+          echo "Service: $(systemctl is-active caddy)"
+          ss -lnt | grep -E ':(80|443)[[:space:]]' || true
+          echo "TLS request diagnostics:"
+          curl --noproxy '*' -v --max-time 10 -o /dev/null https://45-77-197-18.sslip.io/api/customer/vehicles 2>&1 | grep -Ei 'SSL|TLS|certificate|HTTP/|error|connected|resolve|handshake' | tail -16 || true
+          echo "Caddy certificate events:"
+          journalctl -u caddy --since '15 minutes ago' --no-pager -o cat | grep -Ei 'certificate|acme|challenge|error|issuer|obtaining|authorization|rate limit' | tail -30 || true
+          TLS_DIAG
           echo "=== Diagnostico GPS Ecuador (solo lectura) ==="
           ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
           set -u
