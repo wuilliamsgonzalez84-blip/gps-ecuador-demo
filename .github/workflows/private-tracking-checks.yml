@@ -1,0 +1,22 @@
+name: Private tracking integration checks
+on:
+  push:
+    branches: [feature/private-live-api-integration]
+    paths:
+      - private-tracking.html
+      - tests/private-tracking.test.cjs
+      - .github/workflows/private-tracking-checks.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate private tracking page
+        run: node --test tests/private-tracking.test.cjs
