@@ -1,0 +1,118 @@
+name: Audit customer authentication and vehicle isolation
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/audit-customer-auth.yml']
+permissions:
+  contents: read
+concurrency:
+  group: gps-customer-route-production
+  cancel-in-progress: false
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Restore existing customer route mount and verify HTTPS authorization
+        env:
+          HOST: ${{ secrets.GPS_VULTR_HOST }}
+          USER: ${{ secrets.GPS_VULTR_USER }}
+          SSH_KEY: ${{ secrets.GPS_VULTR_SSH_KEY }}
+          FINGERPRINT: ${{ secrets.GPS_VULTR_HOST_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p ~/.ssh
+          trap 'rm -f ~/.ssh/gps_ci_key ~/.ssh/known_hosts ~/.ssh/scanned_hosts' EXIT
+          python3 - <<'PY'
+          import os, re, base64, subprocess
+          from pathlib import Path
+          raw = os.environ["SSH_KEY"].strip().lstrip("\ufeff")
+          raw = raw.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\r", "")
+          if raw[:1] in ("'", '"') and raw[-1:] == raw[:1]:
+              raw = raw[1:-1].strip()
+          if "-----BEGIN " not in raw:
+              try:
+                  raw = base64.b64decode(re.sub(r"\s+", "", raw), validate=True).decode("ascii")
+              except (ValueError, UnicodeError):
+                  raise SystemExit("El secreto no contiene una clave privada completa; recuperar la misma clave original.")
+          match = re.fullmatch(r"\s*-----BEGIN (OPENSSH PRIVATE KEY|RSA PRIVATE KEY|EC PRIVATE KEY|PRIVATE KEY|ENCRYPTED PRIVATE KEY)-----\s*(.*?)\s*-----END \1-----\s*", raw, re.S)
+          if not match:
+              raise SystemExit("Cabecera o cierre de clave incompleto; recuperar la misma clave original.")
+          kind, body = match.groups()
+          if "Proc-Type:" in body:
+              normalized = raw.strip() + "\n"
+          else:
+              body = re.sub(r"\s+", "", body)
+              try:
+                  base64.b64decode(body, validate=True)
+              except ValueError:
+                  raise SystemExit("Contenido de clave incompleto o alterado; recuperar la misma clave original.")
+              normalized = "-----BEGIN " + kind + "-----\n" + "\n".join(body[i:i+64] for i in range(0, len(body), 64)) + "\n-----END " + kind + "-----\n"
+          path = Path.home() / ".ssh/gps_ci_key"
+          path.write_text(normalized, encoding="ascii")
+          path.chmod(0o600)
+          result = subprocess.run(["ssh-keygen", "-y", "-P", "", "-f", str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+          if result.returncode:
+              error = result.stderr.decode(errors="replace").lower()
+              if "passphrase" in error or kind == "ENCRYPTED PRIVATE KEY":
+                  raise SystemExit("La clave existente requiere frase de acceso.")
+              raise SystemExit("La clave sigue incompleta o alterada tras normalizar; recuperar la misma clave original.")
+          print("Clave privada existente validada; contenido oculto.")
+          PY
+          ssh-keyscan -T 10 -t ed25519,ecdsa,rsa "$HOST" 2>/dev/null > ~/.ssh/scanned_hosts
+          test -s ~/.ssh/scanned_hosts || { echo "No se obtuvo clave publica del servidor"; exit 1; }
+          # Accept the SHA256 token alone or the complete ssh-keygen output.
+          # Require exactly one fingerprint; never trust an unverified scanned key.
+          expected=$(python3 - <<'PY'
+          import os, re
+          value = os.environ["FINGERPRINT"].strip()
+          fingerprints = set(re.findall(r"(?<![A-Za-z0-9+/])SHA256:([A-Za-z0-9+/]{43})(?:=)?(?![A-Za-z0-9+/=])", value))
+          if len(fingerprints) != 1:
+              raise SystemExit("La huella guardada debe contener una unica huella SHA256 completa del servidor.")
+          print("SHA256:" + fingerprints.pop())
+          PY
+          )
+          : > ~/.ssh/known_hosts
+          while IFS= read -r host_key; do
+            case "$host_key" in ""|\#*) continue ;; esac
+            actual=$(printf '%s\n' "$host_key" | ssh-keygen -lf - -E sha256 | awk '{print $2}')
+            if [ "$actual" = "$expected" ]; then
+              printf '%s\n' "$host_key" >> ~/.ssh/known_hosts
+            fi
+          done < ~/.ssh/scanned_hosts
+          test -s ~/.ssh/known_hosts || { echo "Ninguna clave del servidor coincide con la huella guardada. Conexion cancelada."; exit 1; }
+          ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          echo "Read-only customer authentication and isolation audit"
+          docker exec -i gps-api node - <<'JS'
+          const http=require('http');
+          const db=require('./db');
+          function req(method,path,body,auth){
+           return new Promise((resolve,reject)=>{
+            const payload=body?JSON.stringify(body):'';
+            const q=http.request({host:'127.0.0.1',port:3000,path,method,timeout:5000,headers:{...(body?{'Content-Type':'application/json','Content-Length':Buffer.byteLength(payload)}:{}),...(auth?{Authorization:'Bearer '+auth}:{})}},r=>{let data='';r.on('data',c=>{if(data.length<10000)data+=c});r.on('end',()=>resolve({status:r.statusCode,data}))});
+            q.on('error',reject);q.on('timeout',()=>q.destroy(new Error('timeout')));q.end(payload);
+           });
+          }
+          (async()=>{
+           const cases=[['GET','/api/customer/vehicles',null,null,401],['GET','/api/customer/positions',null,null,401],['GET','/api/customer/history',null,null,401],['POST','/api/customer/login',{email:'invalid@example.invalid',password:'not-a-real-password'},null,401],['POST','/api/customer/login',{},null,400],['GET','/api/customer/vehicles',null,'0000000000000000000000000000000000000000000000000000000000000000',401]];
+           for(const [method,path,body,token,expected] of cases){const r=await req(method,path,body,token);console.log(method,path,'HTTP',r.status,'expected',expected);if(r.status!==expected)throw Error('Unexpected status');}
+           const schema=await db.query("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name=ANY($1::text[]) ORDER BY table_name",[['customer_accounts','customer_sessions','customer_vehicle_access']]);
+           console.log('Customer tables:',schema.rows.map(r=>r.table_name).join(', '));if(schema.rows.length!==3)throw Error('Missing customer tables');
+           const customers=await db.query('SELECT count(*)::int AS n FROM customer_accounts');
+           console.log('Configured customer accounts:',customers.rows[0].n);
+           const isolation=await db.query("SELECT COUNT(*)::int AS n FROM customer_vehicle_access a LEFT JOIN customer_accounts c ON c.id=a.customer_id LEFT JOIN vehicles v ON v.id=a.vehicle_id WHERE c.id IS NULL OR v.id IS NULL");
+           console.log('Orphan vehicle assignments:',isolation.rows[0].n);if(isolation.rows[0].n!==0)throw Error('Orphan assignments');
+           await db.end();
+           console.log('Read-only customer security audit passed; real credential login and cross-customer access remain untested');
+          })().catch(async e=>{console.error('Audit failed:',e.message);try{await db.end()}catch{}process.exitCode=1});
+          JS
+          echo "HTTPS unauthenticated protection checks"
+          for path in /api/customer/vehicles /api/customer/positions /api/customer/history; do
+           code=$(curl --noproxy '*' -sS -o /dev/null -w '%{http_code}' --max-time 10 "https://45-77-197-18.sslip.io$path")
+           echo "$path HTTPS HTTP $code"
+           test "$code" = 401
+          done
+          REMOTE
