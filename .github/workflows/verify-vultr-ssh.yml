@@ -154,6 +154,29 @@ jobs:
           journalctl -u gps-teltonika.service -n 15 --no-pager -o cat 2>/dev/null | grep -Ei 'error|fail|listen|started' | sed -E 's/[0-9]{10,}/[redacted]/g' | tail -8 || true
           echo "Note: Authentication and authorization of location endpoints need explicit protected-route tests."
           PRIVACY
+          echo "=== Protected location endpoint tests (no location content) ==="
+          ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'AUTH'
+          set -euo pipefail
+          echo "Location routes referenced by deployed API (paths only):"
+          docker exec gps-api sh -c "grep -En 'app\\.(get|post|use)|router\\.(get|post|use)' /app/server.js | sed -E 's/.*(app|router)\\.(get|post|use)\\(([^,]*).*/\\1.\\2(\\3)/' | head -35" || true
+          echo "Testing likely sensitive routes with no token (status only):"
+          docker exec gps-api node -e '
+          const http=require("http");
+          const routes=["/api/vehicles","/api/vehicles/count","/api/positions","/api/locations","/api/tracking","/api/history"];
+          Promise.all(routes.map(path=>new Promise(resolve=>{
+            const q=http.get({hostname:"127.0.0.1",port:3000,path,timeout:5000},res=>{
+              res.resume();res.on("end",()=>{console.log(path+" unauthenticated HTTP "+res.statusCode);resolve({path,status:res.statusCode})});
+            });
+            q.on("timeout",()=>q.destroy(new Error("timeout")));
+            q.on("error",e=>{console.log(path+" request error "+(e.code||e.message));resolve({path,status:0})});
+          }))).then(results=>{
+            const sensitive=results.filter(x=>x.path!=="/api/vehicles/count");
+            const exposed=sensitive.filter(x=>x.status===200);
+            if(exposed.length){console.log("WARNING: unauthenticated sensitive endpoints returned 200");process.exitCode=2}
+            else console.log("No tested sensitive path returned HTTP 200 without authentication");
+          });
+          '
+          AUTH
           echo "=== Diagnostico GPS Ecuador (solo lectura) ==="
           ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
           set -u
