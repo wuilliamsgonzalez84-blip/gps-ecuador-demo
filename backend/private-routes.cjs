@@ -43,7 +43,7 @@ module.exports = function privateTrackingRoutes(pool, opts = {}) {
     if(!ids.includes(vehicleId)) return res.status(403).json({error:'Vehicle not permitted'});
     const from=String(req.query.from||''),to=String(req.query.to||'');
     const start=Date.parse(from),end=Date.parse(to);
-    if(!/^\\d{4}-\\d{2}-\\d{2}T/.test(from)||!/^\\d{4}-\\d{2}-\\d{2}T/.test(to)||!Number.isFinite(start)||!Number.isFinite(end)||end<=start||end-start>31*86400000) return res.status(400).json({error:'Invalid date range (max 31 days)'});
+    if(!/^\d{4}-\d{2}-\d{2}T/.test(from)||!/^\d{4}-\d{2}-\d{2}T/.test(to)||!Number.isFinite(start)||!Number.isFinite(end)||end<=start||end-start>31*86400000) return res.status(400).json({error:'Invalid date range (max 31 days)'});
     try {
       const r=await pool.query('SELECT latitude,longitude,recorded_at FROM public.positions WHERE vehicle_id=$1 AND recorded_at >= $2 AND recorded_at < $3 ORDER BY recorded_at DESC LIMIT 500',[vehicleId,new Date(start),new Date(end)]);
       res.json({vehicleId,positions:r.rows.map(p=>({latitude:p.latitude,longitude:p.longitude,recordedAt:p.recorded_at})),limit:500});
