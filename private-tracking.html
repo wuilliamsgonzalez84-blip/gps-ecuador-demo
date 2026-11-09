@@ -2,11 +2,11 @@
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>GPS Ecuador · Vehículos privados</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<style>body{font:16px system-ui;background:#0c1729;color:#e8f0ff;margin:0}main{max-width:950px;margin:auto;padding:18px}a{color:#93c5fd}button{background:#34d399;border:0;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5}#map{height:55vh;min-height:320px;border-radius:12px}#status{padding:14px;background:#182a42;border-radius:10px}li{padding:8px}</style></head>
+<style>body{font:16px system-ui;background:#0c1729;color:#e8f0ff;margin:0}main{max-width:950px;margin:auto;padding:18px}a{color:#93c5fd}input{padding:10px;margin:6px;border-radius:6px}button{background:#34d399;border:0;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5}#map{height:55vh;min-height:320px;border-radius:12px}#status{padding:14px;background:#182a42;border-radius:10px}li{padding:8px}</style></head>
 <body><main><h1>GPS Ecuador · Rastreo privado</h1>
-<p>Esta pantalla solo consulta ubicaciones autorizadas desde una API segura del mismo dominio. No muestra datos simulados.</p>
+<p>Esta pantalla requiere una cuenta autorizada en la API HTTPS del mismo dominio. El token se conserva solo en memoria hasta cerrar o recargar la página. No muestra datos simulados.</p>
 <p id="status" role="status" aria-live="polite">Comprobando conexión…</p>
-<button id="refresh">Actualizar ubicaciones</button> <a href="index.html">Volver al inicio</a>
+<form id="loginForm"><label>Correo <input id="email" type="email" required autocomplete="username"></label> <label>Contraseña <input id="password" type="password" required autocomplete="current-password"></label> <button type="submit">Entrar</button></form><button id="logout" hidden>Cerrar sesión</button> <button id="refresh" disabled>Actualizar ubicaciones</button> <a href="index.html">Volver al inicio</a>
 <h2>Últimas ubicaciones</h2><div id="map" aria-label="Mapa de ubicaciones autorizadas"></div><ul id="vehicles"></ul>
 <p><small>La ubicación puede ser antigua. No se considera que un vehículo esté en línea por tener una posición registrada.</small></p></main>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -15,9 +15,9 @@
 const status=document.getElementById('status'), list=document.getElementById('vehicles'), button=document.getElementById('refresh');
 const map=L.map('map').setView([-1.83,-78.18],6);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
-const markers=L.layerGroup().addTo(map);
+const markers=L.layerGroup().addTo(map);let token=null;const loginForm=document.getElementById('loginForm'),logout=document.getElementById('logout');
 async function request(path){
-  const response=await fetch(path,{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}});
+  const response=await fetch(path,{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json',...(token?{Authorization:'Bearer '+token}:{})}});
   if(response.status===401||response.status===403)throw Error('Acceso no autorizado. Inicia sesión mediante el acceso privado configurado en el servidor.');
   if(!response.ok)throw Error('La API respondió con HTTP '+response.status);
   return response.json();
@@ -25,14 +25,14 @@ async function request(path){
 async function refresh(){
  button.disabled=true;status.textContent='Consultando API privada…';
  try{
-  const [vehicleData,positionData]=await Promise.all([request('/api/vehicles'),request('/api/positions')]);
+  const [vehicleData,positionData]=await Promise.all([request('/api/customer/vehicles'),request('/api/customer/positions')]);
   if(!Array.isArray(vehicleData.vehicles)||!Array.isArray(positionData.positions))throw Error('La API devolvió un formato inesperado.');
   const allowed=new Map(vehicleData.vehicles.filter(v=>Number.isSafeInteger(v.id)).map(v=>[v.id,v]));
-  const positions=positionData.positions.filter(p=>allowed.has(p.deviceId)&&p.valid===true&&Number.isFinite(p.latitude)&&Math.abs(p.latitude)<=90&&Number.isFinite(p.longitude)&&Math.abs(p.longitude)<=180&&Number.isFinite(Date.parse(p.fixTime)));
+  const positions=positionData.positions.filter(p=>allowed.has(p.vehicleId)&&Number.isFinite(Number(p.latitude))&&Math.abs(Number(p.latitude))<=90&&Number.isFinite(Number(p.longitude))&&Math.abs(Number(p.longitude))<=180&&p.recordedAt&&Number.isFinite(Date.parse(p.recordedAt)));
   markers.clearLayers();list.replaceChildren();const bounds=[];
   for(const p of positions){
-   const v=allowed.get(p.deviceId),name=typeof v.name==='string'?v.name:'Vehículo '+p.deviceId;
-   const at=new Date(p.fixTime).toLocaleString('es-EC');
+   const v=allowed.get(p.vehicleId),name=typeof v.name==='string'?v.name:'Vehículo '+p.vehicleId;
+   const at=new Date(p.recordedAt).toLocaleString('es-EC');
    const marker=L.marker([p.latitude,p.longitude]).addTo(markers);
    const popup=document.createElement('div');const strong=document.createElement('strong');strong.textContent=name;
    popup.append(strong,document.createElement('br'),document.createTextNode('Última posición: '+at));marker.bindPopup(popup);
@@ -44,5 +44,7 @@ async function refresh(){
  }catch(e){markers.clearLayers();list.replaceChildren();status.textContent='No se pudo consultar el rastreo: '+e.message;}
  finally{button.disabled=false;}
 }
-button.addEventListener('click',refresh);refresh();
+loginForm.addEventListener('submit',async e=>{e.preventDefault();if(location.protocol!=='https:'&&location.hostname!=='localhost'){status.textContent='Se requiere HTTPS para iniciar sesión.';return;}status.textContent='Iniciando sesión…';try{const response=await fetch('/api/customer/login',{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('email').value,password:document.getElementById('password').value})});if(!response.ok)throw Error('Inicio de sesión rechazado (HTTP '+response.status+').');const data=await response.json();if(!/^[a-f0-9]{64}$/.test(data.token))throw Error('Token de sesión inválido.');token=data.token;document.getElementById('password').value='';loginForm.hidden=true;logout.hidden=false;button.disabled=false;await refresh();}catch(err){status.textContent=err.message;}});
+logout.addEventListener('click',async()=>{const oldToken=token;token=null;button.disabled=true;logout.hidden=true;loginForm.hidden=false;markers.clearLayers();list.replaceChildren();status.textContent='Sesión cerrada.';if(oldToken)try{await fetch('/api/customer/logout',{method:'POST',credentials:'same-origin',headers:{Authorization:'Bearer '+oldToken}})}catch{}});
+button.addEventListener('click',()=>{if(token)refresh()});
 </script></body></html>
