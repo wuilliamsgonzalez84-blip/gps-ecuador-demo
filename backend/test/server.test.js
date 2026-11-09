@@ -6,11 +6,13 @@ import { once } from 'node:events';
 const env = {
   ...process.env,
   PORT: '18888',
-  TRACCAR_URL: 'https://traccar.example.com',
-  TRACCAR_TOKEN: 'test-token',
   APP_API_KEY: 'test-secret',
   ALLOWED_ORIGIN: 'https://example.com',
-  DEVICE_ALLOWLIST: '1,2'
+  DEVICE_ALLOWLIST: '1,2',
+  PGHOST: '127.0.0.1',
+  PGDATABASE: 'gps_test',
+  PGUSER: 'gps_test',
+  PGPASSWORD: 'not-a-real-password'
 };
 let child;
 test.before(async () => {
