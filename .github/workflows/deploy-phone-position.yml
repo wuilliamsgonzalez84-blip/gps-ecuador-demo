@@ -55,7 +55,7 @@ jobs:
           )
           : > ~/.ssh/known_hosts
           while IFS= read -r key; do
-            test -n "$key" || continue
+            case "$key" in ""|\#*) continue ;; esac
             actual=$(printf '%s\n' "$key" | ssh-keygen -lf - -E sha256 | awk '{print $2}')
             if [ "$actual" = "$expected" ]; then printf '%s\n' "$key" >> ~/.ssh/known_hosts; fi
           done < ~/.ssh/scanned_hosts
