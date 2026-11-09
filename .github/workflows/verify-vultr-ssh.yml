@@ -93,3 +93,33 @@ jobs:
           done < ~/.ssh/scanned_hosts
           test -s ~/.ssh/known_hosts || { echo "Ninguna clave del servidor coincide con la huella guardada. Conexion cancelada."; exit 1; }
           ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'printf "Conexion SSH confirmada; sin cambios en el servidor.\n"'
+
+          echo "=== Diagnostico GPS Ecuador (solo lectura) ==="
+          ssh -i ~/.ssh/gps_ci_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
+          set -u
+          fail=0
+          for service in gps-api gps-postgres; do
+            state=$(docker inspect -f '{{.State.Running}}' "$service" 2>/dev/null || true)
+            echo "$service running: ${state:-not_found}"
+            [ "$state" = true ] || fail=1
+          done
+          if docker exec gps-postgres pg_isready >/dev/null 2>&1; then
+            echo "PostgreSQL: accepting connections"
+          else
+            echo "PostgreSQL: unavailable"; fail=1
+          fi
+          docker exec gps-api node -e '
+          const http=require("http");
+          const paths=["/api/health","/api/vehicles/count"];
+          Promise.all(paths.map(path=>new Promise(resolve=>{
+            const req=http.get({hostname:"127.0.0.1",port:3000,path,timeout:5000},res=>{
+              res.resume();res.on("end",()=>{console.log(path+" HTTP "+res.statusCode);resolve(res.statusCode===200)});
+            });
+            req.on("timeout",()=>req.destroy(new Error("timeout")));
+            req.on("error",e=>{console.log(path+" ERROR "+e.code);resolve(false)});
+          }))).then(results=>{if(results.some(ok=>!ok))process.exitCode=1});
+          ' || fail=1
+          echo "Teltonika service active: $(systemctl is-active gps-teltonika.service 2>/dev/null || true)"
+          echo "Privacy/authentication: NOT verified by this read-only diagnostic"
+          exit "$fail"
+          REMOTE
