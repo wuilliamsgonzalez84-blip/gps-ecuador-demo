@@ -1,0 +1,30 @@
+name: Customer access checks
+on:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/customer-access-checks.yml'
+  push:
+    branches:
+      - feature/private-client-access
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install backend dependencies
+        run: npm install --no-audit --no-fund
+      - name: Validate Vultr preflight shell syntax
+        run: bash -n deploy/vultr-preflight.sh
+      - name: Validate syntax
+        run: npm run check
+      - name: Run isolated account tests
+        run: npm test

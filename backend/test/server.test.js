@@ -6,19 +6,24 @@ import { once } from 'node:events';
 const env = {
   ...process.env,
   PORT: '18888',
-  TRACCAR_URL: 'https://traccar.example.com',
-  TRACCAR_TOKEN: 'test-token',
+  PGHOST: '127.0.0.1',
+  PGPORT: '1',
+  PGDATABASE: 'gps_ci_placeholder',
+  PGUSER: 'gps_ci_placeholder',
+  PGPASSWORD: 'not-a-real-password',
   APP_API_KEY: 'test-secret',
   ALLOWED_ORIGIN: 'https://example.com',
   DEVICE_ALLOWLIST: '1,2'
 };
 let child;
 test.before(async () => {
-  child = spawn(process.execPath, ['server.js'], {cwd: new URL('../',import.meta.url),env,stdio:'ignore'});
+  child = spawn(process.execPath, ['server.js'], {cwd: new URL('../',import.meta.url),env,stdio:'pipe'});
+  let stderr='';
+  child.stderr.on('data', chunk => { stderr += chunk.toString().slice(0,2048); });
   for (let i=0;i<50;i++) {
     try { await fetch('http://127.0.0.1:18888/health'); return; } catch { await new Promise(r=>setTimeout(r,100)); }
   }
-  throw new Error('Server did not start');
+  throw new Error('Server did not start: '+stderr.slice(-1200));
 });
 test.after(() => child?.kill());
 test('health endpoint',async()=>{
