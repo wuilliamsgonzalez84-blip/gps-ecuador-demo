@@ -151,6 +151,24 @@ jobs:
           '
           docker exec gps-postgres sh -c 'printf "POSTGRES_USER configured: "; test -n "$POSTGRES_USER" && echo yes || echo no; printf "POSTGRES_DB configured: "; test -n "$POSTGRES_DB" && echo yes || echo no'
           docker inspect -f 'API restart policy: {{.HostConfig.RestartPolicy.Name}} image: {{.Config.Image}}' gps-api
+          echo "=== Pre-repair validation (no secrets) ==="
+          docker exec gps-api node -e '
+          const d=require("./db"),net=require("net");
+          const s=net.connect({host:"gps-postgres",port:5432,timeout:3000});
+          s.on("connect",()=>{console.log("Service DNS/TCP: reachable");s.destroy()});
+          s.on("timeout",()=>{console.log("Service DNS/TCP: timeout");s.destroy()});
+          s.on("error",e=>console.log("Service DNS/TCP:",e.code));
+          '
+          docker exec gps-api node -e '
+          const fs=require("fs");const s=fs.readFileSync("/app/db.js","utf8");
+          console.log("db.js uses PGHOST:",s.includes("PGHOST"),"uses hardcoded IP:",s.includes("172.17.0.2"));
+          '
+          docker inspect -f 'API mounts: {{range .Mounts}}{{.Destination}} ({{.Type}}) {{end}}' gps-api
+          docker exec gps-api node -e '
+          const db=require("./db");const u=db.options?.user||"";
+          console.log("API user configured:",!!u);
+          '
+          docker exec gps-postgres sh -c 'test -n "$POSTGRES_USER" && echo "Postgres initial user configured"'
           echo "Teltonika service active: $(systemctl is-active gps-teltonika.service 2>/dev/null || true)"
           echo "Privacy/authentication: NOT verified by this read-only diagnostic"
           exit "$fail"
