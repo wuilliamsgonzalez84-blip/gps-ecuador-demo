@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {hashPassword,verifyPassword,normalizeEmail,allowedVehicleIds} from '../lib/customer-auth.js';
+import {filterAllowedVehicles,filterAllowedPositions} from '../lib/vehicle-utils.js';
+test('rejects short and oversized passwords',async()=>{await assert.rejects(hashPassword('short'));await assert.rejects(hashPassword('x'.repeat(1025)));});
+test('rejects malformed password hashes and oversized input',async()=>{assert.equal(await verifyPassword('a'.repeat(1025),'scrypt$'+'0'.repeat(32)+'$'+'0'.repeat(128)),false);assert.equal(await verifyPassword('validPassword123','scrypt$invalid'),false);});
+test('rejects invalid email types and addresses',()=>{for(const value of [null,3,'','a@b','hello world@example.com'])assert.throws(()=>normalizeEmail(value));});
+test('rejects invalid account identifiers before querying',async()=>{const pool={query(){throw Error('Must not query');}};for(const id of [-1,0,1.2,'1',null])await assert.rejects(allowedVehicleIds(pool,id));});
+test('empty vehicle assignment cannot reveal positions',()=>{assert.deepEqual(filterAllowedVehicles([{id:1}],new Set()),[]);assert.deepEqual(filterAllowedPositions([{deviceId:1,latitude:1,longitude:1,valid:true,fixTime:'2026-11-09T00:00:00Z'}],new Set()),[]);});
+test('rejects invalid or out-of-range coordinates',()=>{const rows=[{deviceId:1,latitude:100,longitude:1,valid:true,fixTime:'2026-11-09T00:00:00Z'},{deviceId:1,latitude:1,longitude:1,valid:false,fixTime:'2026-11-09T00:00:00Z'}];assert.deepEqual(filterAllowedPositions(rows,new Set([1])),[]);});
