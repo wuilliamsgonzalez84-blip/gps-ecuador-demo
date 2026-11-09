@@ -172,4 +172,6 @@ const server = http.createServer(async (req,res) => {
   }
 });
 server.requestTimeout = 10000;
-server.listen(PORT,'127.0.0.1',()=>console.log('GPS Ecuador API listening on localhost:'+PORT));
+const BIND_HOST = process.env.BIND_HOST || '127.0.0.1';
+if (!['127.0.0.1', '0.0.0.0'].includes(BIND_HOST)) throw Error('Invalid BIND_HOST');
+server.listen(PORT,BIND_HOST,()=>console.log('GPS Ecuador API listening on '+BIND_HOST+':'+PORT));
