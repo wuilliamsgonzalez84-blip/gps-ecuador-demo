@@ -66,7 +66,8 @@ class MainActivity : Activity() {
             customerResults.text = ""
             customerStatus.text = "Sesión cerrada en este teléfono"
             if (token != null && api != null) Thread { try { api.logout(token) } catch (_: Exception) {} }.start()
-        } })
+        } }
+        layout.addView(logoutButton)
         state = TextView(this).apply { text = "Seguimiento desactivado" }
         layout.addView(state)
         layout.addView(Button(this).apply { text = "Iniciar GPS"; setOnClickListener { requestLocation() } })
