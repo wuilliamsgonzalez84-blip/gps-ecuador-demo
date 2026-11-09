@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { validatePhoneFix, canWriteVehicle } from './phone-ingest.js';
+const now=Date.parse('2026-11-09T22:40:00Z');
+const fix={latitude:25.805418,longitude:-80.190681,accuracy:18,recordedAt:'2026-11-09T22:39:30Z'};
+test('accepts fresh accurate coordinates',()=>assert.deepEqual(validatePhoneFix(fix,now),fix));
+test('rejects invalid coordinates',()=>assert.equal(validatePhoneFix({...fix,latitude:91},now),null));
+test('rejects stale data',()=>assert.equal(validatePhoneFix({...fix,recordedAt:'2026-11-09T22:20:00Z'},now),null));
+test('rejects invalid accuracy',()=>assert.equal(validatePhoneFix({...fix,accuracy:-1},now),null));
+test('requires vehicle permission',()=>{assert.equal(canWriteVehicle(new Set([1]),1),true);assert.equal(canWriteVehicle(new Set([1]),2),false)});
