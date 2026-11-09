@@ -124,10 +124,13 @@ jobs:
             done
           }
           if ! check_https; then
-            echo "Checking direct upstream status and Caddy configuration"
+            echo "Container API works; host localhost:3000 is not the same listener"
+            container_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{if eq .NetworkID ""}}{{else}}{{.IPAddress}}{{end}}{{end}}' gps-api | awk '{print $1}')
+            test -n "$container_ip"
+            case "$container_ip" in 172.*|10.*|192.168.*) ;; *) echo "Unexpected container IP"; exit 1;; esac
             for path in /api/customer/vehicles /api/customer/positions; do
-              code=$(curl --noproxy '*' -sS -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:3000$path")
-              echo "Direct $path HTTP $code"
+              code=$(curl --noproxy '*' -sS -o /dev/null -w '%{http_code}' --max-time 5 "http://$container_ip:3000$path")
+              echo "Container bridge $path HTTP $code"
               test "$code" = 401
             done
             test -f /etc/caddy/Caddyfile
@@ -136,21 +139,21 @@ jobs:
             cp -p /etc/caddy/Caddyfile "$caddybackup"
             restore_proxy() { cp -p "$caddybackup" /etc/caddy/Caddyfile; systemctl reload caddy || true; }
             trap 'restore_proxy; rollback' ERR
-            python3 - /etc/caddy/Caddyfile <<'PY'
+            python3 - /etc/caddy/Caddyfile "$container_ip" <<'PY'
           from pathlib import Path
           import sys
-          p=Path(sys.argv[1])
+          p=Path(sys.argv[1]);ip=sys.argv[2]
           s=p.read_text()
           expected='45-77-197-18.sslip.io {'
-          if s.count(expected)!=1 or 'reverse_proxy 127.0.0.1:3000' not in s or '# GPS_ECUADOR_MANAGED_PROXY' not in s:
+          if s.count(expected)!=1 or 'reverse_proxy ' not in s or '# GPS_ECUADOR_MANAGED_PROXY' not in s:
               raise SystemExit('Unexpected proxy config; no changes')
           # Only customer endpoints are exposed; keep the rest blocked.
-          s='''# GPS_ECUADOR_MANAGED_PROXY
+          s=f'''# GPS_ECUADOR_MANAGED_PROXY
           45-77-197-18.sslip.io {
               encode zstd gzip
               @customer path /api/customer/*
               handle @customer {
-                  reverse_proxy 127.0.0.1:3000
+                  reverse_proxy {ip}:3000
               }
               handle {
                   respond "Not found" 404
