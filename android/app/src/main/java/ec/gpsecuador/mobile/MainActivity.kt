@@ -12,10 +12,14 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.location.LocationManager
 import android.os.CancellationSignal
+import android.net.Uri
+import java.time.temporal.ChronoUnit
+import java.time.format.DateTimeFormatter
 import java.time.Instant
 
 class MainActivity : Activity() {
     private var customerToken: String? = null
+    private var latestAuthorizedLocation: Pair<Double, Double>? = null
     private lateinit var customerStatus: TextView
     private lateinit var state: TextView
     private lateinit var history: TextView
@@ -86,6 +90,46 @@ class MainActivity : Activity() {
                     }.start()
                 }
             } catch (e: Exception) { customerStatus.text = "Error de ubicación: ${e.message}" }
+        } })
+        val serverHistory = TextView(this).apply { text = "Historial del servidor: sin consultar"; setPadding(0, 12, 0, 12) }
+        layout.addView(serverHistory)
+        layout.addView(Button(this).apply { text = "Consultar historial real (últimos 7 días)"; setOnClickListener {
+            val token = customerToken
+            val id = uploadVehicleId.text.toString().toIntOrNull()
+            if (token == null || id == null || id <= 0) { serverHistory.text = "Inicia sesión y escribe el ID de tu vehículo"; return@setOnClickListener }
+            val url = serverUrl.text.toString().trim()
+            serverHistory.text = "Consultando historial privado..."
+            Thread {
+                try {
+                    val api = CustomerApi(url)
+                    val to = Instant.now()
+                    val from = to.minus(7, ChronoUnit.DAYS)
+                    val result = api.history(token, id, from.toString(), to.plusSeconds(60).toString())
+                    val items = result.optJSONArray("positions")
+                    val count = items?.length() ?: 0
+                    val latest = if (count > 0) items!!.getJSONObject(0) else null
+                    val lat = latest?.getDouble("latitude")
+                    val lon = latest?.getDouble("longitude")
+                    val whenRecorded = latest?.optString("recordedAt") ?: ""
+                    runOnUiThread {
+                        latestAuthorizedLocation = if (lat != null && lon != null) Pair(lat, lon) else null
+                        serverHistory.text = if (count == 0) "No hay posiciones en el servidor para este vehículo durante los últimos 7 días." else "Historial real: $count posiciones. Última: $whenRecorded. Pulsa Ver ubicación en mapa para abrirla."
+                    }
+                } catch (e: Exception) { runOnUiThread { serverHistory.text = "No se pudo consultar el historial: ${e.message}" } }
+            }.start()
+        } })
+        layout.addView(Button(this).apply { text = "Ver última ubicación real en mapa"; setOnClickListener {
+            val loc = latestAuthorizedLocation
+            if (loc == null) { serverHistory.text = "Primero consulta el historial real"; return@setOnClickListener }
+            android.app.AlertDialog.Builder(this@MainActivity)
+                .setTitle("Abrir mapa externo")
+                .setMessage("La aplicación de mapas recibirá las coordenadas de la última posición de tu vehículo. ¿Continuar?")
+                .setNegativeButton("Cancelar", null)
+                .setPositiveButton("Abrir mapa") { _, _ ->
+                    val uri = Uri.parse("geo:${loc.first},${loc.second}?q=${loc.first},${loc.second}")
+                    try { startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+                    catch (_: Exception) { serverHistory.text = "No se encontró una aplicación de mapas compatible" }
+                }.show()
         } })
         state = TextView(this).apply { text = "Seguimiento desactivado" }
         layout.addView(state)
