@@ -2,6 +2,9 @@ package ec.gpsecuador.mobile
 
 import android.app.Activity
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import java.util.concurrent.atomic.AtomicBoolean
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.LinearLayout
@@ -17,6 +20,30 @@ import org.json.JSONObject
 class VehicleMapActivity : Activity() {
     private var map: WebView? = null
     private var loaded = false
+    private val refreshHandler = Handler(Looper.getMainLooper())
+    private val refreshing = AtomicBoolean(false)
+    private var autoRefresh = false
+    private var screenVisible = false
+    private var refreshAction: (() -> Unit)? = null
+    private val refreshTask = object : Runnable {
+        override fun run() {
+            if (!autoRefresh || !screenVisible) return
+            refreshAction?.invoke()
+            refreshHandler.postDelayed(this, 15_000L)
+        }
+    }
+
+    private fun stopPolling() { refreshHandler.removeCallbacks(refreshTask) }
+    override fun onResume() {
+        super.onResume()
+        screenVisible = true
+        if (autoRefresh) { stopPolling(); refreshHandler.post(refreshTask) }
+    }
+    override fun onPause() {
+        screenVisible = false
+        stopPolling()
+        super.onPause()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -55,6 +82,15 @@ class VehicleMapActivity : Activity() {
         })
         val status = TextView(this).apply { text = "Posiciones del último reporte · Actualización manual"; setPadding(18, 8, 18, 8) }
         root.addView(status)
+        val autoButton = Button(this).apply { text = "Activar actualización automática (15 s)" }
+        root.addView(autoButton)
+        autoButton.setOnClickListener {
+            autoRefresh = !autoRefresh
+            autoButton.text = if (autoRefresh) "Detener actualización automática" else "Activar actualización automática (15 s)"
+            stopPolling()
+            if (autoRefresh && screenVisible) refreshHandler.post(refreshTask)
+            if (!autoRefresh) status.text = "Actualización automática detenida"
+        }
         val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val vehicleIdInput = EditText(this).apply {
             hint = "ID vehículo"; inputType = android.text.InputType.TYPE_CLASS_NUMBER
@@ -70,9 +106,12 @@ class VehicleMapActivity : Activity() {
         val token = intent.getStringExtra("customerToken")
         refresh.isEnabled = serverUrl != null && token != null
         historyButton.isEnabled = refresh.isEnabled
+        autoButton.isEnabled = refresh.isEnabled
+        refreshAction = { refresh.performClick() }
         refresh.setOnClickListener {
             if (serverUrl == null || token == null) return@setOnClickListener
             status.text = "Actualizando posiciones..."
+            if (!refreshing.compareAndSet(false, true)) return@setOnClickListener
             Thread {
                 try {
                     val api = CustomerApi(serverUrl)
@@ -96,9 +135,10 @@ class VehicleMapActivity : Activity() {
                     }
                     runOnUiThread {
                         if (loaded) map?.evaluateJavascript("renderPositions(" + JSONObject.quote(latest.toString()) + ",false);", null)
-                        status.text = "Actualizado: ${latest.length()} vehículo(s) con ubicación · No en vivo"
+                        status.text = "Actualizado: ${latest.length()} vehículo(s) · Consulta cada 15 s si está activada (no es transmisión GPS en vivo)"
                     }
                 } catch (e: Exception) { runOnUiThread { status.text = "Error al actualizar: ${e.message}" } }
+                finally { refreshing.set(false) }
             }.start()
         }
         historyButton.setOnClickListener {
@@ -195,6 +235,9 @@ class VehicleMapActivity : Activity() {
     }
 
     override fun onDestroy() {
+        autoRefresh = false
+        stopPolling()
+        refreshAction = null
         map?.destroy()
         map = null
         super.onDestroy()
