@@ -97,6 +97,8 @@ class VehicleMapActivity : Activity() {
         val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val vehicleIdInput = EditText(this).apply {
             hint = "ID vehículo"; inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            val initialId = intent.getIntExtra("vehicleId", 0)
+            if (initialId > 0) setText(initialId.toString())
             layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
         }
         controls.addView(vehicleIdInput)
