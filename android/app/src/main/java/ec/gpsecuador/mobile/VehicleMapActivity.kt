@@ -252,7 +252,7 @@ class VehicleMapActivity : Activity() {
                 })).filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
                 if (!points.length) return;
                 const bounds = [];
-                let segment = [], gaps = 0;
+                let segment = [], gaps = 0, distanceKm = 0, movingSeconds = 0;
                 const pointLayer = L.layerGroup().addTo(routeLayer);
                 function flush() {
                   if (segment.length > 1) L.polyline(segment,{color:'#ef7c00',weight:5,opacity:0.85}).addTo(routeLayer);
@@ -270,12 +270,23 @@ class VehicleMapActivity : Activity() {
                     if (km > 0.5 || !Number.isFinite(seconds) || seconds <= 0 ||
                         seconds > 300 || km/(seconds/3600) > 120) {
                       flush(); gaps++;
+                    } else {
+                      distanceKm += km;
+                      movingSeconds += seconds;
                     }
                   }
                   segment.push(coord);
                   const detail = document.createElement('div');
                   const stamp = Number.isFinite(p.time) ? new Date(p.time).toLocaleString('es-EC') : 'Hora no disponible';
                   detail.textContent = 'Punto '+(bounds.length)+' de '+points.length+' · '+stamp;
+                  if (previous) {
+                    const elapsed = (p.time-previous.time)/1000;
+                    const traveled = map.distance([previous.lat,previous.lon],coord)/1000;
+                    if (elapsed > 0 && elapsed <= 300 && traveled <= 0.5 && traveled/(elapsed/3600) <= 120) {
+                      const speed = traveled/(elapsed/3600);
+                      detail.textContent += ' · Velocidad estimada entre puntos: '+speed.toFixed(1)+' km/h';
+                    }
+                  }
                   L.circleMarker(coord,{radius:4,color:'#205b9f',fillColor:'#ffffff',fillOpacity:1,weight:2})
                     .addTo(pointLayer).bindPopup(detail);
                   previous = p;
@@ -286,7 +297,13 @@ class VehicleMapActivity : Activity() {
                 L.circleMarker(bounds[bounds.length-1],{radius:7,color:'#be4b00',fillOpacity:1})
                   .addTo(routeLayer).bindPopup('Última posición del recorrido');
                 const notice = document.querySelector('.notice');
-                if (notice) notice.textContent = points.length+' puntos · '+gaps+' saltos sin conectar · Toca los puntos azules para ver la hora';
+                if (notice) {
+                  const validTimes = points.filter(p=>Number.isFinite(p.time)).map(p=>p.time);
+                  const duration = validTimes.length > 1 ? Math.max(...validTimes)-Math.min(...validTimes) : 0;
+                  const durationText = duration > 0 ? Math.floor(duration/3600000)+' h '+Math.floor((duration%3600000)/60000)+' min' : 'sin datos';
+                  const avg = movingSeconds > 0 ? (distanceKm/(movingSeconds/3600)).toFixed(1)+' km/h' : 'sin datos';
+                  notice.textContent = points.length+' puntos · '+gaps+' saltos · Distancia parcial: '+distanceKm.toFixed(2)+' km · Tiempo entre primera y última posición: '+durationText+' · Velocidad media estimada en tramos conectados: '+avg;
+                }
                 map.fitBounds(bounds,{padding:[35,35],maxZoom:16});
               }
               renderPositions(JSON.stringify(points),true);
