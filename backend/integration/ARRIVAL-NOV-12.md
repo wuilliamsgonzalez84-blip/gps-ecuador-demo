@@ -29,3 +29,25 @@ El secreto en /root/gps-api-key NO está automáticamente disponible dentro de D
 
 ## Límites actuales
 No está confirmada una URL de frontend definitiva ni un despliegue activo de estas rutas. No se ha validado tráfico real del FMC920. El script de preparación no prueba ni reinicia el servicio.
+
+## Integración con la app Android ya probada (vehículo 1)
+
+La app ha recuperado 21 posiciones del vehículo 1 y dibuja el historial; esto valida la consulta de datos existentes, **no** la recepción del FMC920. No cambiar la API Android, el esquema de PostgreSQL ni reinstalar la app para esta etapa.
+
+### Puerta de verificación antes de conectar hardware
+1. Comprobar que el servicio receptor Teltonika que ya existe sigue activo y escuchando en TCP 5028, sin crear otro servicio ni duplicar puertos.
+2. Confirmar con una consulta de solo lectura qué tablas guardan dispositivos/IMEI y cómo se relacionan con `vehicles.id`; no asumir columnas ni registrar un IMEI ficticio.
+3. Verificar que la ruta autenticada utilizada por Android consulta `positions.vehicle_id=1`, y conservar el acceso privado actual.
+4. Mantener separado el rastreo del teléfono del dispositivo físico durante la prueba; no asociar automáticamente el FMC920 al vehículo 1 sin confirmar que ese será su destino.
+5. Revisar si el receptor verifica el IMEI autorizado y si decodifica el protocolo Teltonika Codec 8/8E utilizado por el equipo; no aceptar paquetes desconocidos como posiciones válidas.
+
+### Prueba de aceptación cuando llegue el equipo
+1. Confirmar modelo, firmware, bandas y SIM/APN. Configurar destino IP/puerto TCP según la red donde se utilizará.
+2. Desde un entorno seguro, observar un inicio de sesión del IMEI y una trama AVL real en los registros del receptor, sin publicar el IMEI ni secretos.
+3. Confirmar ACK del receptor, fecha UTC, coordenadas y registro único en PostgreSQL. Comprobar que no se duplican posiciones por retransmisión.
+4. Asociar el dispositivo al vehículo autorizado tras validar la identidad; verificar que el historial privado Android muestra una posición nueva con la fecha correcta.
+5. Hacer una prueba estacionaria y otra de desplazamiento corto. Comparar coordenadas y horas reales; revisar que los filtros del mapa no conecten saltos imposibles.
+6. Probar desconexión/reconexión de datos móviles y recuperación del historial. No probar inmovilización remota durante esta fase.
+
+### Criterio de finalización
+Integración terminada solo cuando exista una trama real del FMC920 recibida por el receptor, almacenada en PostgreSQL, asociada a un vehículo autorizado y consultable en Android. GitHub Actions y el historial del teléfono por sí solos no demuestran este flujo.
