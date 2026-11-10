@@ -60,7 +60,8 @@ class VehicleMapActivity : Activity() {
                     markers.put(JSONObject().put("latitude", lat).put("longitude", lon)
                         .put("id", point.optInt("id", 0))
                         .put("name", point.optString("name", "Vehículo"))
-                        .put("recordedAt", point.optString("recordedAt", "")))
+                        .put("recordedAt", point.optString("recordedAt", ""))
+                        .put("speedKmh", point.opt("speedKmh") ?: JSONObject.NULL))
                 }
             } catch (_: Exception) { }
         }
@@ -81,7 +82,9 @@ class VehicleMapActivity : Activity() {
             setPadding(18, 22, 18, 14)
         })
         val status = TextView(this).apply { text = "Posiciones del último reporte · Actualización manual"; setPadding(18, 8, 18, 8) }
+        val vehicleSummary = TextView(this).apply { text = "Estado de los vehículos: consulta pendiente"; setPadding(18, 4, 18, 8) }
         root.addView(status)
+        root.addView(vehicleSummary)
         val autoButton = Button(this).apply { text = "Activar actualización automática (15 s)" }
         root.addView(autoButton)
         autoButton.setOnClickListener {
@@ -131,11 +134,13 @@ class VehicleMapActivity : Activity() {
                         if (!lat.isFinite() || !lon.isFinite() || lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
                         latest.put(JSONObject().put("id", id).put("name", allowed[id])
                             .put("latitude", lat).put("longitude", lon)
-                            .put("recordedAt", p.optString("recordedAt", "")))
+                            .put("recordedAt", p.optString("recordedAt", ""))
+                            .put("speedKmh", p.opt("speedKmh") ?: JSONObject.NULL))
                     }
                     runOnUiThread {
                         if (loaded) map?.evaluateJavascript("renderPositions(" + JSONObject.quote(latest.toString()) + ",false);", null)
-                        status.text = "Actualizado: ${latest.length()} vehículo(s) · Consulta cada 15 s si está activada (no es transmisión GPS en vivo)"
+                        status.text = "Actualizado: ${latest.length()} vehículo(s) · Consulta cada 15 s si está activada"
+                        vehicleSummary.text = summarizeVehicleAges(latest)
                     }
                 } catch (e: Exception) { runOnUiThread { status.text = "Error al actualizar: ${e.message}" } }
                 finally { refreshing.set(false) }
@@ -166,6 +171,7 @@ class VehicleMapActivity : Activity() {
                 } catch (e: Exception) { runOnUiThread { status.text = "No se pudo consultar recorrido: ${e.message}" } }
             }.start()
         }
+        vehicleSummary.text = summarizeVehicleAges(markers)
         val web = WebView(this).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = false
@@ -196,6 +202,16 @@ class VehicleMapActivity : Activity() {
               }).addTo(map);
               const positionLayer = L.layerGroup().addTo(map);
               const routeLayer = L.layerGroup().addTo(map);
+              function lastSeen(value) {
+                if (!value) return {label:'Sin hora de reporte', color:'#777777'};
+                const ms = Date.parse(value);
+                if (!Number.isFinite(ms)) return {label:'Hora desconocida', color:'#777777'};
+                const age = Date.now() - ms;
+                if (age < -120000) return {label:'Hora del dispositivo por verificar', color:'#777777'};
+                if (age < 120000) return {label:'Reporte reciente (menos de 2 min)', color:'#14804a'};
+                if (age < 900000) return {label:'Último reporte hace '+Math.floor(age/60000)+' min', color:'#d18a00'};
+                return {label:'Sin reporte reciente ('+Math.floor(age/60000)+' min)', color:'#777777'};
+              }
               function renderPositions(json, fit) {
                 const items = JSON.parse(json);
                 positionLayer.clearLayers();
@@ -208,9 +224,17 @@ class VehicleMapActivity : Activity() {
                   title.textContent = p.name || ('Vehículo ' + p.id);
                   label.appendChild(title);
                   const time = document.createElement('div');
-                  time.textContent = p.recordedAt ? ('Último reporte: ' + p.recordedAt) : 'Última posición registrada';
+                  const seen = lastSeen(p.recordedAt);
+                  time.textContent = seen.label;
                   label.appendChild(time);
-                  L.circleMarker([lat,lon],{radius:10,color:'#0066cc',fillColor:'#0088ff',fillOpacity:0.85})
+                  const date = document.createElement('div');
+                  date.textContent = p.recordedAt ? ('Fecha: '+new Date(p.recordedAt).toLocaleString('es-EC')) : 'Fecha no disponible';
+                  label.appendChild(date);
+                  const speed = document.createElement('div');
+                  const kmh = Number(p.speedKmh);
+                  speed.textContent = p.speedKmh !== null && p.speedKmh !== undefined && Number.isFinite(kmh) && kmh >= 0 ? ('Velocidad reportada: '+kmh.toFixed(1)+' km/h') : 'Velocidad: no disponible';
+                  label.appendChild(speed);
+                  L.circleMarker([lat,lon],{radius:10,color:seen.color,fillColor:seen.color,fillOpacity:0.85})
                     .addTo(positionLayer).bindPopup(label);
                   bounds.push([lat,lon]);
                 }
@@ -232,6 +256,25 @@ class VehicleMapActivity : Activity() {
             </script></body></html>
         """.trimIndent()
         web.loadDataWithBaseURL("https://unpkg.com/", html, "text/html", "UTF-8", null)
+    }
+
+    private fun summarizeVehicleAges(points: JSONArray): String {
+        var recent = 0
+        var delayed = 0
+        var old = 0
+        var unknown = 0
+        val now = System.currentTimeMillis()
+        for (i in 0 until points.length()) {
+            val recorded = points.optJSONObject(i)?.optString("recordedAt", "") ?: ""
+            val age = try { now - Instant.parse(recorded).toEpochMilli() } catch (_: Exception) { null }
+            when {
+                age == null || age < -120_000L -> unknown++
+                age < 120_000L -> recent++
+                age < 900_000L -> delayed++
+                else -> old++
+            }
+        }
+        return "Reportes: $recent recientes · $delayed con demora · $old antiguos · $unknown sin hora válida"
     }
 
     override fun onDestroy() {
