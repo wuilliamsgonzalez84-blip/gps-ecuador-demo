@@ -9,20 +9,52 @@ import android.location.LocationManager
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
+import java.time.Instant
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Prototipo local y voluntario. NO envía coordenadas a Internet.
+ * Servicio voluntario: historial local o envío HTTPS autenticado, solo tras autorización explícita.
  * El usuario puede detener el servicio desde la notificación persistente.
  */
 class LocationService : Service() {
     private lateinit var manager: LocationManager
     private var tracking = false
     private var lastUpdateElapsed = 0L
+    private var remoteToken: String? = null
+    private var remoteUrl: String? = null
+    private var remoteVehicleId = 0
+    private var lastSentElapsed = 0L
+    private val sending = AtomicBoolean(false)
+    private val executor = Executors.newSingleThreadExecutor()
     private val listener = LocationListener { location ->
         lastUpdateElapsed = SystemClock.elapsedRealtime()
         LocationHistory.add(this, location)
-        // No guardar ni registrar coordenadas sensibles en logs.
-        notifyStatus("GPS activo · posición guardada solo en este teléfono")
+        // Nunca registrar coordenadas ni credenciales en logs.
+        val token = remoteToken
+        val url = remoteUrl
+        val vehicleId = remoteVehicleId
+        if (token == null || url == null || vehicleId <= 0) {
+            notifyStatus("GPS local activo · posiciones privadas")
+        } else if (lastUpdateElapsed - lastSentElapsed >= 15_000L && sending.compareAndSet(false, true)) {
+            lastSentElapsed = lastUpdateElapsed
+            val latitude = location.latitude
+            val longitude = location.longitude
+            val recordedAt = Instant.ofEpochMilli(location.time).toString()
+            executor.execute {
+                try {
+                    // Detener/cerrar sesión invalida la autorización de nuevos envíos.
+                    if (remoteToken == token && remoteVehicleId == vehicleId) {
+                        CustomerApi(url).sendPhonePosition(token, vehicleId, latitude, longitude, recordedAt)
+                        notifyStatus("GPS Ecuador · última posición enviada a Vultr")
+                    }
+                } catch (_: Exception) {
+                    notifyStatus("GPS Ecuador · sin conexión; posición guardada localmente")
+                } finally {
+                    sending.set(false)
+                }
+            }
+        }
     }
 
     override fun onCreate() {
@@ -54,17 +86,45 @@ class LocationService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            remoteToken = null
+            remoteUrl = null
+            remoteVehicleId = 0
             stopSelf()
             return START_NOT_STICKY
         }
+        if (intent?.action == ACTION_REMOTE) {
+            val url = intent.getStringExtra(EXTRA_URL)
+            val token = intent.getStringExtra(EXTRA_TOKEN)
+            val vehicleId = intent.getIntExtra(EXTRA_VEHICLE_ID, 0)
+            if (url.isNullOrBlank() || token.isNullOrBlank() || vehicleId <= 0) {
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            try { CustomerApi(url) } catch (_: Exception) {
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            remoteUrl = url
+            remoteToken = token
+            remoteVehicleId = vehicleId
+            lastSentElapsed = 0L
+        } else if (!tracking) {
+            remoteUrl = null
+            remoteToken = null
+            remoteVehicleId = 0
+        }
+        val message = if (remoteToken != null) "Envío GPS autorizado · detener desde la notificación" else "Historial local · no transmite coordenadas"
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(
-                NOTIFICATION_ID, notification("Historial local · no transmite coordenadas"),
+                NOTIFICATION_ID, notification(message),
                 android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
             )
-        } else startForeground(NOTIFICATION_ID, notification("Solo lectura local · no transmite coordenadas"))
+        } else startForeground(NOTIFICATION_ID, notification(message))
 
-        if (tracking) return START_NOT_STICKY
+        if (tracking) {
+            notifyStatus(message)
+            return START_NOT_STICKY
+        }
         val fine = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val coarse = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!fine && !coarse) {
@@ -83,7 +143,7 @@ class LocationService : Service() {
             } else {
                 manager.requestLocationUpdates(provider, 5000L, 10f, listener)
                 tracking = true
-                notifyStatus("Esperando señal GPS · historial privado")
+                notifyStatus(if (remoteToken != null) "Esperando GPS · envío automático autorizado" else "Esperando señal GPS · historial privado")
             }
         } catch (e: SecurityException) {
             stopSelf()
@@ -94,8 +154,12 @@ class LocationService : Service() {
     }
 
     override fun onDestroy() {
+        remoteToken = null
+        remoteUrl = null
+        remoteVehicleId = 0
         if (tracking) manager.removeUpdates(listener)
         tracking = false
+        executor.shutdownNow()
         super.onDestroy()
     }
     override fun onBind(intent: Intent?): IBinder? = null
@@ -103,5 +167,9 @@ class LocationService : Service() {
         private const val CHANNEL = "gps_active"
         private const val NOTIFICATION_ID = 1
         private const val ACTION_STOP = "STOP"
+        const val ACTION_REMOTE = "START_AUTHORIZED_REMOTE"
+        const val EXTRA_URL = "remote_url"
+        const val EXTRA_TOKEN = "remote_token"
+        const val EXTRA_VEHICLE_ID = "remote_vehicle_id"
     }
 }
