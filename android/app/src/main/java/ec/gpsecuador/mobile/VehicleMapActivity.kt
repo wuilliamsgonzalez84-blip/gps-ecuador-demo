@@ -248,11 +248,12 @@ class VehicleMapActivity : Activity() {
                 routeLayer.clearLayers();
                 const raw = JSON.parse(json);
                 const points = raw.map(p => ({
-                  lat: Number(p.lat), lon: Number(p.lon), time: Date.parse(p.time || '')
+                  lat: Number(p.lat), lon: Number(p.lon), time: Date.parse(p.time || ''), rawTime: p.time || ''
                 })).filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
                 if (!points.length) return;
                 const bounds = [];
                 let segment = [], gaps = 0;
+                const pointLayer = L.layerGroup().addTo(routeLayer);
                 function flush() {
                   if (segment.length > 1) L.polyline(segment,{color:'#ef7c00',weight:5,opacity:0.85}).addTo(routeLayer);
                   else if (segment.length === 1) L.circleMarker(segment[0],{color:'#ef7c00',radius:5}).addTo(routeLayer);
@@ -266,12 +267,17 @@ class VehicleMapActivity : Activity() {
                     const km = map.distance([previous.lat,previous.lon],coord)/1000;
                     const seconds = (p.time-previous.time)/1000;
                     // Do not imply a continuous route across long gaps or implausible jumps.
-                    if (km > 2 || (Number.isFinite(seconds) && seconds > 0 &&
-                        (seconds > 1800 || km/(seconds/3600) > 180))) {
+                    if (km > 0.5 || !Number.isFinite(seconds) || seconds <= 0 ||
+                        seconds > 300 || km/(seconds/3600) > 120) {
                       flush(); gaps++;
                     }
                   }
                   segment.push(coord);
+                  const detail = document.createElement('div');
+                  const stamp = Number.isFinite(p.time) ? new Date(p.time).toLocaleString('es-EC') : 'Hora no disponible';
+                  detail.textContent = 'Punto '+(bounds.length)+' de '+points.length+' · '+stamp;
+                  L.circleMarker(coord,{radius:4,color:'#205b9f',fillColor:'#ffffff',fillOpacity:1,weight:2})
+                    .addTo(pointLayer).bindPopup(detail);
                   previous = p;
                 }
                 flush();
@@ -279,7 +285,8 @@ class VehicleMapActivity : Activity() {
                   .addTo(routeLayer).bindPopup('Inicio de posiciones registradas');
                 L.circleMarker(bounds[bounds.length-1],{radius:7,color:'#be4b00',fillOpacity:1})
                   .addTo(routeLayer).bindPopup('Última posición del recorrido');
-                if (gaps) console.info(gaps+' saltos de ubicación omitidos');
+                const notice = document.querySelector('.notice');
+                if (notice) notice.textContent = points.length+' puntos · '+gaps+' saltos sin conectar · Toca los puntos azules para ver la hora';
                 map.fitBounds(bounds,{padding:[35,35],maxZoom:16});
               }
               renderPositions(JSON.stringify(points),true);
