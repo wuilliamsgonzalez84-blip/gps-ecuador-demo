@@ -170,6 +170,8 @@ class MainActivity : Activity() {
                                 .setPositiveButton("Ver mapa") { _, _ ->
                                     startActivity(Intent(this@MainActivity, VehicleMapActivity::class.java).apply {
                                         putExtra("markersJson", markers.toString())
+                                        putExtra("serverUrl", url)
+                                        putExtra("customerToken", token)
                                     })
                                 }.show()
                         }
