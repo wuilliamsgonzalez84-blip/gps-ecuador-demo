@@ -1,0 +1,32 @@
+name: GPS Ecuador Play Bundle
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'android/**'
+      - '.github/workflows/android-play-bundle.yml'
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build release bundle without changing applicationId
+        working-directory: android
+        run: gradle --no-daemon bundleRelease
+      - name: Verify expected package identifier
+        run: grep -F 'applicationId = "ec.gpsecuador.mobile"' android/app/build.gradle.kts
+      - name: Save unsigned bundle for signing
+        uses: actions/upload-artifact@v4
+        with:
+          name: GPS-Ecuador-release-unsigned-AAB
+          path: android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
