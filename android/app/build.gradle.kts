@@ -4,13 +4,13 @@ plugins {
 }
 android {
     namespace = "ec.gpsecuador.mobile"
-    compileSdk = 35
+    compileSdk = 36
     defaultConfig {
         applicationId = "ec.gpsecuador.mobile"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        targetSdk = 36
+        versionCode = 2
+        versionName = "0.1.1"
     }
     val signingFile = System.getenv("GPS_UPLOAD_KEYSTORE_PATH")
     signingConfigs {
