@@ -3,6 +3,7 @@ package ec.gpsecuador.mobile
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 
 /** Requests customer-scoped data only. No embedded owner token or cleartext HTTP. */
 class CustomerApi(private val baseUrl: String) {
@@ -38,5 +39,7 @@ class CustomerApi(private val baseUrl: String) {
     fun positions(token: String): JSONObject = request("/api/customer/positions", token = token)
     fun sendPhonePosition(token: String, vehicleId: Int, latitude: Double, longitude: Double, recordedAt: String): JSONObject =
         request("/api/customer/phone-position", "POST", JSONObject().put("vehicleId", vehicleId).put("latitude", latitude).put("longitude", longitude).put("recordedAt", recordedAt), token)
+    fun history(token: String, vehicleId: Int, from: String, to: String): JSONObject =
+        request("/api/customer/history?vehicleId=$vehicleId&from=${URLEncoder.encode(from, "UTF-8")}&to=${URLEncoder.encode(to, "UTF-8")}", token = token)
     fun logout(token: String) { request("/api/customer/logout", "POST", token = token) }
 }
