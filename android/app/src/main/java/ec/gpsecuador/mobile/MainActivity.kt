@@ -19,6 +19,8 @@ import java.time.Instant
 
 class MainActivity : Activity() {
     private var customerToken: String? = null
+    private var pendingRemoteVehicleId: Int? = null
+    private var pendingRemoteUrl: String? = null
     private var latestAuthorizedLocation: Pair<Double, Double>? = null
     private lateinit var customerStatus: TextView
     private lateinit var state: TextView
@@ -27,7 +29,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(32, 48, 32, 32) }
         layout.addView(TextView(this).apply { text = "GPS Ecuador"; textSize = 26f })
-        layout.addView(TextView(this).apply { text = "Compartir ubicación solo con tu autorización. Mientras esté activo, verás una notificación permanente. Esta versión guarda hasta 300 posiciones de forma privada en este teléfono. Aún NO transmite posiciones a otro teléfono." })
+        layout.addView(TextView(this).apply { text = "GPS local privado o envío automático a Vultr solo al activarlo. Mientras esté activo, verás una notificación permanente con opción de detener. Se guardan hasta 300 posiciones locales." })
         layout.addView(TextView(this).apply { text = "Acceso privado a vehículos"; textSize = 20f })
         val serverUrl = EditText(this).apply { hint = "Servidor HTTPS"; setText("https://45-77-197-18.sslip.io"); inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI }
         layout.addView(serverUrl)
@@ -57,11 +59,43 @@ class MainActivity : Activity() {
         layout.addView(Button(this).apply { text = "Cerrar sesión privada"; setOnClickListener {
             val token = customerToken
             customerToken = null
+            pendingRemoteVehicleId = null
+            pendingRemoteUrl = null
+            stopService(Intent(this@MainActivity, LocationService::class.java))
+            state.text = "Rastreo detenido al cerrar sesión"
             customerStatus.text = "Sesión cerrada en este teléfono"
             if (token != null) Thread { try { CustomerApi(serverUrl.text.toString().trim()).logout(token) } catch (_: Exception) {} }.start()
         } })
         val uploadVehicleId = EditText(this).apply { hint = "ID del vehículo autorizado"; inputType = android.text.InputType.TYPE_CLASS_NUMBER }
         layout.addView(uploadVehicleId)
+        layout.addView(Button(this).apply { text = "INICIAR RASTREO AUTOMÁTICO A VULTR"; setOnClickListener {
+            val token = customerToken
+            val id = uploadVehicleId.text.toString().toIntOrNull()
+            val url = serverUrl.text.toString().trim()
+            if (token == null || id == null || id <= 0) {
+                customerStatus.text = "Inicia sesión e indica el ID de tu vehículo autorizado"
+                return@setOnClickListener
+            }
+            try { CustomerApi(url) } catch (_: Exception) {
+                customerStatus.text = "Se requiere servidor HTTPS válido"
+                return@setOnClickListener
+            }
+            android.app.AlertDialog.Builder(this@MainActivity)
+                .setTitle("Autorizar envío automático GPS")
+                .setMessage("Se enviará tu ubicación al servidor HTTPS para el vehículo $id aproximadamente cada 15 segundos cuando haya señal y movimiento GPS. Seguirá activo con la pantalla cerrada mientras aparezca la notificación. Puedes detenerlo en cualquier momento. ¿Activar?")
+                .setNegativeButton("Cancelar", null)
+                .setPositiveButton("Activar rastreo") { _, _ ->
+                    pendingRemoteVehicleId = id
+                    pendingRemoteUrl = url
+                    requestRemoteLocation()
+                }.show()
+        } })
+        layout.addView(Button(this).apply { text = "DETENER RASTREO AUTOMÁTICO"; setOnClickListener {
+            pendingRemoteVehicleId = null
+            pendingRemoteUrl = null
+            stopService(Intent(this@MainActivity, LocationService::class.java))
+            state.text = "Rastreo automático y GPS local detenidos"
+        } })
         layout.addView(Button(this).apply { text = "Enviar UNA posición al servidor"; setOnClickListener {
             val token = customerToken
             val id = uploadVehicleId.text.toString().toIntOrNull()
@@ -182,7 +216,7 @@ class MainActivity : Activity() {
         state = TextView(this).apply { text = "Seguimiento desactivado" }
         layout.addView(state)
         layout.addView(Button(this).apply { text = "Iniciar GPS"; setOnClickListener { requestLocation() } })
-        layout.addView(Button(this).apply { text = "Detener GPS"; setOnClickListener { stopService(Intent(this@MainActivity, LocationService::class.java)); state.text = "Seguimiento detenido" } })
+        layout.addView(Button(this).apply { text = "Detener GPS"; setOnClickListener { pendingRemoteVehicleId = null; pendingRemoteUrl = null; stopService(Intent(this@MainActivity, LocationService::class.java)); state.text = "Seguimiento detenido" } })
         history = TextView(this).apply { text = LocationHistory.summary(this@MainActivity); setPadding(0, 24, 0, 24) }
         layout.addView(history)
         layout.addView(Button(this).apply { text = "Actualizar historial local"; setOnClickListener { history.text = LocationHistory.summary(this@MainActivity) } })
@@ -200,6 +234,33 @@ class MainActivity : Activity() {
         super.onResume()
         if (::history.isInitialized) history.text = LocationHistory.summary(this)
     }
+    private fun requestRemoteLocation() {
+        val permissions = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        if (Build.VERSION.SDK_INT >= 33) permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(permissions.toTypedArray(), 101)
+        } else startRemoteGps()
+    }
+    private fun startRemoteGps() {
+        val id = pendingRemoteVehicleId ?: return
+        val url = pendingRemoteUrl ?: return
+        val token = customerToken ?: return
+        try {
+            startForegroundService(Intent(this, LocationService::class.java).apply {
+                action = LocationService.ACTION_REMOTE
+                putExtra(LocationService.EXTRA_URL, url)
+                putExtra(LocationService.EXTRA_TOKEN, token)
+                putExtra(LocationService.EXTRA_VEHICLE_ID, id)
+            })
+            state.text = "Rastreo automático solicitado para vehículo $id · detener desde la notificación"
+        } catch (e: Exception) {
+            state.text = "No se pudo iniciar rastreo: ${e.message}"
+        } finally {
+            pendingRemoteVehicleId = null
+            pendingRemoteUrl = null
+        }
+    }
     private fun requestLocation() {
         val permissions = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
         if (Build.VERSION.SDK_INT >= 33) permissions.add(Manifest.permission.POST_NOTIFICATIONS)
@@ -210,9 +271,15 @@ class MainActivity : Activity() {
     }
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 100 && (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)) startGps()
-        else state.text = "Permiso de ubicación denegado"
+        val allowed = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (requestCode == 100 && allowed) startGps()
+        else if (requestCode == 101 && allowed) startRemoteGps()
+        else {
+            pendingRemoteVehicleId = null
+            pendingRemoteUrl = null
+            state.text = "Permiso de ubicación denegado"
+        }
     }
     private fun startGps() {
         try {
