@@ -163,6 +163,9 @@ class MainActivity : Activity() {
                     startActivity(Intent(this@MainActivity, VehicleMapActivity::class.java).apply {
                         putExtra("latitude", loc.first)
                         putExtra("longitude", loc.second)
+                        putExtra("serverUrl", serverUrl.text.toString().trim())
+                        putExtra("customerToken", customerToken)
+                        putExtra("vehicleId", uploadVehicleId.text.toString().toIntOrNull() ?: 0)
                     })
                 }.show()
         } })
