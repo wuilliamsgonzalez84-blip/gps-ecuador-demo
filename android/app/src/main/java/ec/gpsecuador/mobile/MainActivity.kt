@@ -19,6 +19,7 @@ import java.time.Instant
 
 class MainActivity : Activity() {
     private var customerToken: String? = null
+    private var latestAuthorizedRecordedAt: String = ""
     private var pendingRemoteVehicleId: Int? = null
     private var pendingRemoteUrl: String? = null
     private var latestAuthorizedLocation: Pair<Double, Double>? = null
@@ -147,6 +148,7 @@ class MainActivity : Activity() {
                     val whenRecorded = latest?.optString("recordedAt") ?: ""
                     runOnUiThread {
                         latestAuthorizedLocation = if (lat != null && lon != null) Pair(lat, lon) else null
+                        latestAuthorizedRecordedAt = whenRecorded
                         serverHistory.text = if (count == 0) "No hay posiciones en el servidor para este vehículo durante los últimos 7 días." else "Historial real: $count posiciones. Última: $whenRecorded. Pulsa Ver ubicación en mapa para abrirla."
                     }
                 } catch (e: Exception) { runOnUiThread { serverHistory.text = "No se pudo consultar el historial: ${e.message}" } }
@@ -166,6 +168,7 @@ class MainActivity : Activity() {
                         putExtra("serverUrl", serverUrl.text.toString().trim())
                         putExtra("customerToken", customerToken)
                         putExtra("vehicleId", uploadVehicleId.text.toString().toIntOrNull() ?: 0)
+                        putExtra("recordedAt", latestAuthorizedRecordedAt)
                     })
                 }.show()
         } })
