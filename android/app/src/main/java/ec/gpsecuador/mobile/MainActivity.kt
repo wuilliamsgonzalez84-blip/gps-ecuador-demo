@@ -118,17 +118,18 @@ class MainActivity : Activity() {
                 } catch (e: Exception) { runOnUiThread { serverHistory.text = "No se pudo consultar el historial: ${e.message}" } }
             }.start()
         } })
-        layout.addView(Button(this).apply { text = "Ver última ubicación real en mapa"; setOnClickListener {
+        layout.addView(Button(this).apply { text = "Ver ubicación en mapa integrado"; setOnClickListener {
             val loc = latestAuthorizedLocation
             if (loc == null) { serverHistory.text = "Primero consulta el historial real"; return@setOnClickListener }
             android.app.AlertDialog.Builder(this@MainActivity)
-                .setTitle("Abrir mapa externo")
-                .setMessage("La aplicación de mapas recibirá las coordenadas de la última posición de tu vehículo. ¿Continuar?")
+                .setTitle("Mapa dentro de GPS Ecuador")
+                .setMessage("Para mostrar el mapa se descargarán imágenes de OpenStreetMap. El proveedor de mapas puede recibir información de la zona consultada. ¿Continuar?")
                 .setNegativeButton("Cancelar", null)
-                .setPositiveButton("Abrir mapa") { _, _ ->
-                    val uri = Uri.parse("geo:${loc.first},${loc.second}?q=${loc.first},${loc.second}")
-                    try { startActivity(Intent(Intent.ACTION_VIEW, uri)) }
-                    catch (_: Exception) { serverHistory.text = "No se encontró una aplicación de mapas compatible" }
+                .setPositiveButton("Ver mapa") { _, _ ->
+                    startActivity(Intent(this@MainActivity, VehicleMapActivity::class.java).apply {
+                        putExtra("latitude", loc.first)
+                        putExtra("longitude", loc.second)
+                    })
                 }.show()
         } })
         state = TextView(this).apply { text = "Seguimiento desactivado" }
