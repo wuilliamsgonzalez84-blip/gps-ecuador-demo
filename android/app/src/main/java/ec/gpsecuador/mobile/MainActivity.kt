@@ -132,6 +132,51 @@ class MainActivity : Activity() {
                     })
                 }.show()
         } })
+        layout.addView(Button(this).apply { text = "Ver todos mis vehículos en el mapa"; setOnClickListener {
+            val token = customerToken
+            if (token == null) { customerStatus.text = "Inicia sesión para consultar tus vehículos"; return@setOnClickListener }
+            val url = serverUrl.text.toString().trim()
+            customerStatus.text = "Consultando ubicaciones autorizadas..."
+            Thread {
+                try {
+                    val api = CustomerApi(url)
+                    val vehicles = api.vehicles(token).optJSONArray("vehicles") ?: org.json.JSONArray()
+                    val positions = api.positions(token).optJSONArray("positions") ?: org.json.JSONArray()
+                    val names = mutableMapOf<Int, String>()
+                    for (i in 0 until vehicles.length()) {
+                        val v = vehicles.getJSONObject(i)
+                        names[v.getInt("id")] = v.optString("name", "Vehículo ${v.getInt("id")}")
+                    }
+                    val markers = org.json.JSONArray()
+                    for (i in 0 until positions.length()) {
+                        val p = positions.getJSONObject(i)
+                        val id = p.getInt("vehicleId")
+                        val lat = p.getDouble("latitude")
+                        val lon = p.getDouble("longitude")
+                        if (!names.containsKey(id) || !lat.isFinite() || !lon.isFinite() || lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
+                        markers.put(org.json.JSONObject().put("id", id).put("name", names[id])
+                            .put("latitude", lat).put("longitude", lon)
+                            .put("recordedAt", p.optString("recordedAt", "")))
+                    }
+                    runOnUiThread {
+                        customerStatus.text = "Vehículos autorizados: ${vehicles.length()}. Con ubicación: ${markers.length()}."
+                        if (markers.length() == 0) {
+                            customerStatus.text = "No hay ubicaciones registradas para tus vehículos"
+                        } else {
+                            android.app.AlertDialog.Builder(this@MainActivity)
+                                .setTitle("Mapa de mis vehículos")
+                                .setMessage("El mapa descargará imágenes de OpenStreetMap; el proveedor puede conocer la zona consultada. ¿Continuar?")
+                                .setNegativeButton("Cancelar", null)
+                                .setPositiveButton("Ver mapa") { _, _ ->
+                                    startActivity(Intent(this@MainActivity, VehicleMapActivity::class.java).apply {
+                                        putExtra("markersJson", markers.toString())
+                                    })
+                                }.show()
+                        }
+                    }
+                } catch (e: Exception) { runOnUiThread { customerStatus.text = "No se pudieron consultar los vehículos: ${e.message}" } }
+            }.start()
+        } })
         state = TextView(this).apply { text = "Seguimiento desactivado" }
         layout.addView(state)
         layout.addView(Button(this).apply { text = "Iniciar GPS"; setOnClickListener { requestLocation() } })
