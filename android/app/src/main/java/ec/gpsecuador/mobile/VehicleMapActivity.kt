@@ -70,7 +70,7 @@ class VehicleMapActivity : Activity() {
             val lon = intent.getDoubleExtra("longitude", Double.NaN)
             if (lat.isFinite() && lon.isFinite() && lat in -90.0..90.0 && lon in -180.0..180.0) {
                 markers.put(JSONObject().put("latitude", lat).put("longitude", lon)
-                    .put("name", "Última posición registrada").put("recordedAt", ""))
+                    .put("name", "Última posición registrada").put("recordedAt", intent.getStringExtra("recordedAt") ?: ""))
             }
         }
         if (markers.length() == 0) { finish(); return }
@@ -164,7 +164,8 @@ class VehicleMapActivity : Activity() {
                         val p = positions.getJSONObject(i)
                         val lat = p.getDouble("latitude"); val lon = p.getDouble("longitude")
                         if (lat.isFinite() && lon.isFinite() && lat in -90.0..90.0 && lon in -180.0..180.0)
-                            coords.put(JSONArray().put(lat).put(lon))
+                            coords.put(JSONObject().put("lat", lat).put("lon", lon)
+                                .put("time", p.optString("recordedAt", "")))
                     }
                     runOnUiThread {
                         if (loaded) map?.evaluateJavascript("renderRoute(" + JSONObject.quote(coords.toString()) + ");", null)
@@ -245,14 +246,41 @@ class VehicleMapActivity : Activity() {
               }
               function renderRoute(json) {
                 routeLayer.clearLayers();
-                const coords = JSON.parse(json);
-                if (coords.length > 1) {
-                  const line = L.polyline(coords,{color:'#ef7c00',weight:5}).addTo(routeLayer);
-                  map.fitBounds(line.getBounds(),{padding:[35,35]});
-                } else if (coords.length === 1) {
-                  L.circleMarker(coords[0],{color:'#ef7c00',radius:8}).addTo(routeLayer);
-                  map.setView(coords[0],16);
+                const raw = JSON.parse(json);
+                const points = raw.map(p => ({
+                  lat: Number(p.lat), lon: Number(p.lon), time: Date.parse(p.time || '')
+                })).filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
+                if (!points.length) return;
+                const bounds = [];
+                let segment = [], gaps = 0;
+                function flush() {
+                  if (segment.length > 1) L.polyline(segment,{color:'#ef7c00',weight:5,opacity:0.85}).addTo(routeLayer);
+                  else if (segment.length === 1) L.circleMarker(segment[0],{color:'#ef7c00',radius:5}).addTo(routeLayer);
+                  segment = [];
                 }
+                let previous = null;
+                for (const p of points) {
+                  const coord = [p.lat,p.lon];
+                  bounds.push(coord);
+                  if (previous) {
+                    const km = map.distance([previous.lat,previous.lon],coord)/1000;
+                    const seconds = (p.time-previous.time)/1000;
+                    // Do not imply a continuous route across long gaps or implausible jumps.
+                    if (km > 2 || (Number.isFinite(seconds) && seconds > 0 &&
+                        (seconds > 1800 || km/(seconds/3600) > 180))) {
+                      flush(); gaps++;
+                    }
+                  }
+                  segment.push(coord);
+                  previous = p;
+                }
+                flush();
+                L.circleMarker(bounds[0],{radius:7,color:'#14804a',fillOpacity:1})
+                  .addTo(routeLayer).bindPopup('Inicio de posiciones registradas');
+                L.circleMarker(bounds[bounds.length-1],{radius:7,color:'#be4b00',fillOpacity:1})
+                  .addTo(routeLayer).bindPopup('Última posición del recorrido');
+                if (gaps) console.info(gaps+' saltos de ubicación omitidos');
+                map.fitBounds(bounds,{padding:[35,35],maxZoom:16});
               }
               renderPositions(JSON.stringify(points),true);
             </script></body></html>
