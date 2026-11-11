@@ -5,10 +5,13 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js"
+    "check": "node --check server.js",
+    "start:customers": "node customer-server.cjs",
+    "check:customers": "node --check customer-server.cjs && node --check customer-routes.cjs"
   },
   "dependencies": {
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "express": "^4.21.2"
   },
   "engines": {
     "node": ">=20"
