@@ -8,15 +8,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verificar estructura y sintaxis del backend
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verificar estructura y sintaxis del backend existente
         shell: bash
         run: |
           set -euo pipefail
           test -f backend/package.json
-          test -f backend/teltonika/app.js
-          node --check backend/teltonika/app.js
-          echo "Estructura y sintaxis basica correctas."
+          test -f backend/server.js
+          test -f backend/integration/gps-routes.cjs
+          test -f backend/integration/legacy-postgres-queries.cjs
+          node --check backend/server.js
+          node --check backend/integration/gps-routes.cjs
+          node --check backend/integration/legacy-postgres-queries.cjs
+          node backend/integration/test-gps-routes.cjs
+          echo "Estructura, sintaxis y pruebas simuladas correctas."
       - name: Aviso de seguridad
         run: |
           echo "Este flujo NO despliega, NO accede a Vultr y NO lee secretos."
-          echo "Antes de desplegar se deben verificar ruta, rama, servicios, respaldo y clave de host SSH."
+          echo "Las pruebas simuladas NO validan el receptor Teltonika en produccion."
+          echo "Antes de desplegar verificar ruta, rama, servicios, respaldo y clave SSH."
