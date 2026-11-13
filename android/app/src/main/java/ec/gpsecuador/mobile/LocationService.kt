@@ -173,7 +173,8 @@ class LocationService : Service() {
     }
 
     override fun onDestroy() {
-        PendingPositions.clear(this)
+        // Preserve queued fixes on system shutdown; never retain the auth token.
+        // Upload requires a new explicitly authorized tracking session.
         remoteToken = null
         remoteUrl = null
         remoteVehicleId = 0
