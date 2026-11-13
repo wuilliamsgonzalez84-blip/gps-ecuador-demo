@@ -41,7 +41,7 @@ function createCustomerRoutes(db){
     const {vehicleId,latitude,longitude,recordedAt}=req.body||{};
     const id=Number(vehicleId),lat=Number(latitude),lon=Number(longitude);
     const timestamp=typeof recordedAt==='string'?Date.parse(recordedAt):NaN;
-    if(!Number.isSafeInteger(id)||id<=0||typeof latitude!=='number'||typeof longitude!=='number'||!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180||!Number.isFinite(timestamp)||Math.abs(Date.now()-timestamp)>300000)return res.status(400).json({error:'Invalid position'});
+    if(!Number.isSafeInteger(id)||id<=0||typeof latitude!=='number'||typeof longitude!=='number'||!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180||!Number.isFinite(timestamp)||timestamp>Date.now()+300000||timestamp<Date.now()-31*86400000)return res.status(400).json({error:'Invalid position'});
     try{
       const r=await db.query('INSERT INTO positions(vehicle_id,latitude,longitude,recorded_at) SELECT $1,$2,$3,$4 WHERE EXISTS (SELECT 1 FROM customer_vehicle_access WHERE customer_id=$5 AND vehicle_id=$1) RETURNING vehicle_id',[id,lat,lon,new Date(timestamp),req.customerId]);
       if(!r.rowCount)return res.status(403).json({error:'Vehicle not permitted'});
