@@ -26,4 +26,4 @@ jobs:
       - name: Syntax check
         run: npm run check
       - name: API tests
-        run: node --test test/*.test.js
+        run: node --test test/*.test.js test/*.test.cjs
