@@ -45,8 +45,26 @@ class LocationService : Service() {
                 try {
                     // Detener/cerrar sesión invalida la autorización de nuevos envíos.
                     if (remoteToken == token && remoteVehicleId == vehicleId) {
-                        CustomerApi(url).sendPhonePosition(token, vehicleId, latitude, longitude, recordedAt)
-                        notifyStatus("GPS Ecuador · última posición enviada a Vultr")
+                        // Queue before network I/O so transient connection failures do not lose the fix.
+                        PendingPositions.enqueue(this, url, vehicleId, latitude, longitude, recordedAt)
+                        val api = CustomerApi(url)
+                        // Backend rejects positions older than five minutes. Drop expired
+                        // fixes rather than replaying them with a falsified timestamp.
+                        repeat(100) {
+                            if (remoteToken != token || remoteVehicleId != vehicleId) return@execute
+                            val item = PendingPositions.peek(this, url, vehicleId) ?: return@repeat
+                            val age = System.currentTimeMillis() -
+                                (java.time.Instant.parse(item.getString("recordedAt")).toEpochMilli())
+                            if (age !in -300_000L..300_000L) {
+                                PendingPositions.removeFirst(this, url, vehicleId)
+                            } else {
+                                api.sendPhonePosition(token, vehicleId,
+                                    item.getDouble("lat"), item.getDouble("lon"),
+                                    item.getString("recordedAt"))
+                                PendingPositions.removeFirst(this, url, vehicleId)
+                            }
+                        }
+                        notifyStatus("GPS Ecuador · posiciones pendientes sincronizadas")
                     }
                 } catch (_: Exception) {
                     notifyStatus("GPS Ecuador · sin conexión; posición guardada localmente")
@@ -89,6 +107,7 @@ class LocationService : Service() {
             remoteToken = null
             remoteUrl = null
             remoteVehicleId = 0
+            PendingPositions.clear(this)
             stopSelf()
             return START_NOT_STICKY
         }
@@ -154,6 +173,7 @@ class LocationService : Service() {
     }
 
     override fun onDestroy() {
+        PendingPositions.clear(this)
         remoteToken = null
         remoteUrl = null
         remoteVehicleId = 0
