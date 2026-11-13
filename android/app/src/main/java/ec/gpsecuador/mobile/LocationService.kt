@@ -128,6 +128,8 @@ class LocationService : Service() {
             remoteVehicleId = vehicleId
             lastSentElapsed = 0L
         } else if (!tracking) {
+            // Local-only mode cannot reuse a prior remote upload queue.
+            PendingPositions.clear(this)
             remoteUrl = null
             remoteToken = null
             remoteVehicleId = 0
