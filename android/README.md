@@ -1,18 +1,20 @@
-# GPS Ecuador Android (prototipo inicial)
+# GPS Ecuador — Android
 
-Esta carpeta contiene el inicio de la aplicación nativa Android para compartir ubicación voluntariamente.
+Aplicación nativa Android `ec.gpsecuador.mobile`, versión de código 0.1.1 (versionCode 2). No utiliza Traccar.
 
-## Estado
-Estructura de proyecto Android en desarrollo. **No es un APK listo para instalar ni está conectada aún al mapa remoto.**
+## Funciones presentes en el código
+- Inicio y cierre de sesión privada con API HTTPS.
+- Consulta de vehículos autorizados, últimas posiciones e historial de hasta siete días.
+- Mapa integrado, visualización de varios vehículos y seguimiento voluntario del teléfono.
+- Servicio de ubicación en primer plano con notificación persistente y opción de detener.
+- Historial local de hasta 300 posiciones y opción de borrarlo.
 
-## Objetivo
-- Solicitar permiso de ubicación con explicación clara.
-- Iniciar seguimiento únicamente tras acción explícita del usuario.
-- Servicio en primer plano con notificación persistente y botón para detener.
-- Conexión cifrada y autenticada a un backend propio (pendiente).
-- Historial y revocación de acceso (pendientes).
+## Comprobaciones efectuadas
+GitHub Actions compiló APK y AAB el 10 de noviembre de 2026. La compilación no equivale a una prueba de campo del Teltonika.
 
-La app no debe rastrear silenciosamente ni ocultar su actividad.
+## Pendientes por validar
+- Reenvío automático de posiciones del teléfono que fallaron durante la desconexión. El código actual guarda historial local, pero **no** demuestra una cola de reintentos al servidor.
+- Pruebas de seguimiento en pantalla bloqueada, pérdida y recuperación de datos móviles.
+- Prueba end-to-end con FMC920 después de su llegada prevista el 20 de noviembre.
 
-## Compilación
-Abrir la carpeta `android` en Android Studio. Se requiere configurar Gradle y el SDK Android antes de compilar.
+No reemplazar la versión en prueba cerrada sin plan de publicación y validación de regresión. No incluir credenciales en la aplicación.
