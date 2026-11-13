@@ -7,6 +7,8 @@ import android.content.pm.PackageManager
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.IBinder
 import android.os.SystemClock
 import java.time.Instant
@@ -26,6 +28,13 @@ class LocationService : Service() {
     private var remoteVehicleId = 0
     private var lastSentElapsed = 0L
     private val sending = AtomicBoolean(false)
+    private val retryHandler = Handler(Looper.getMainLooper())
+    private val retryTask = object : Runnable {
+        override fun run() {
+            if (tracking && remoteToken != null) flushPending()
+            retryHandler.postDelayed(this, 30_000L)
+        }
+    }
     private val executor = Executors.newSingleThreadExecutor()
     private val listener = LocationListener { location ->
         lastUpdateElapsed = SystemClock.elapsedRealtime()
@@ -43,34 +52,46 @@ class LocationService : Service() {
             val recordedAt = Instant.ofEpochMilli(location.time).toString()
             executor.execute {
                 try {
-                    // Detener/cerrar sesión invalida la autorización de nuevos envíos.
-                    if (remoteToken == token && remoteVehicleId == vehicleId) {
-                        // Queue before network I/O so transient connection failures do not lose the fix.
+                    if (remoteToken == token && remoteVehicleId == vehicleId && remoteUrl == url) {
                         PendingPositions.enqueue(this, url, vehicleId, latitude, longitude, recordedAt)
-                        val api = CustomerApi(url)
-                        // Backend rejects positions older than five minutes. Drop expired
-                        // fixes rather than replaying them with a falsified timestamp.
-                        repeat(100) {
-                            if (remoteToken != token || remoteVehicleId != vehicleId) return@execute
-                            val item = PendingPositions.peek(this, url, vehicleId) ?: return@repeat
-                            val age = System.currentTimeMillis() -
-                                (java.time.Instant.parse(item.getString("recordedAt")).toEpochMilli())
-                            if (age !in -300_000L..300_000L) {
-                                PendingPositions.removeFirst(this, url, vehicleId)
-                            } else {
-                                api.sendPhonePosition(token, vehicleId,
-                                    item.getDouble("lat"), item.getDouble("lon"),
-                                    item.getString("recordedAt"))
-                                PendingPositions.removeFirst(this, url, vehicleId)
-                            }
-                        }
-                        notifyStatus("GPS Ecuador · posiciones pendientes sincronizadas")
                     }
-                } catch (_: Exception) {
-                    notifyStatus("GPS Ecuador · sin conexión; posición guardada localmente")
                 } finally {
                     sending.set(false)
+                    flushPending()
                 }
+            }
+        }
+    }
+
+    // Independent of new GPS fixes: retry while an authorized tracking session is active.
+    private fun flushPending() {
+        val token = remoteToken ?: return
+        val url = remoteUrl ?: return
+        val vehicleId = remoteVehicleId
+        if (vehicleId <= 0 || !sending.compareAndSet(false, true)) return
+        executor.execute {
+            try {
+                val api = CustomerApi(url)
+                for (i in 0 until 100) {
+                    if (remoteToken != token || remoteUrl != url || remoteVehicleId != vehicleId) break
+                    val item = PendingPositions.peek(this, url, vehicleId) ?: break
+                    val age = System.currentTimeMillis() -
+                        Instant.parse(item.getString("recordedAt")).toEpochMilli()
+                    // Backend accepts offline fixes up to 31 days old; never fabricate time.
+                    if (age > 31L * 86_400_000L || age < -300_000L) {
+                        PendingPositions.removeFirst(this, url, vehicleId)
+                        continue
+                    }
+                    api.sendPhonePosition(token, vehicleId,
+                        item.getDouble("lat"), item.getDouble("lon"),
+                        item.getString("recordedAt"))
+                    PendingPositions.removeFirst(this, url, vehicleId)
+                }
+                notifyStatus("GPS Ecuador · sincronización revisada")
+            } catch (_: Exception) {
+                notifyStatus("GPS Ecuador · sin conexión; reintento automático pendiente")
+            } finally {
+                sending.set(false)
             }
         }
     }
@@ -78,6 +99,7 @@ class LocationService : Service() {
     override fun onCreate() {
         super.onCreate()
         manager = getSystemService(LOCATION_SERVICE) as LocationManager
+        retryHandler.postDelayed(retryTask, 30_000L)
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL, "GPS Ecuador · seguimiento activo", NotificationManager.IMPORTANCE_LOW)
         )
@@ -127,6 +149,7 @@ class LocationService : Service() {
             remoteToken = token
             remoteVehicleId = vehicleId
             lastSentElapsed = 0L
+            flushPending()
         } else if (!tracking) {
             // Local-only mode cannot reuse a prior remote upload queue.
             PendingPositions.clear(this)
@@ -182,6 +205,7 @@ class LocationService : Service() {
         remoteVehicleId = 0
         if (tracking) manager.removeUpdates(listener)
         tracking = false
+        retryHandler.removeCallbacks(retryTask)
         executor.shutdownNow()
         super.onDestroy()
     }
