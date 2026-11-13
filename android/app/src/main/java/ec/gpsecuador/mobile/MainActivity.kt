@@ -62,6 +62,7 @@ class MainActivity : Activity() {
             customerToken = null
             pendingRemoteVehicleId = null
             pendingRemoteUrl = null
+            PendingPositions.clear(this@MainActivity)
             stopService(Intent(this@MainActivity, LocationService::class.java))
             state.text = "Rastreo detenido al cerrar sesión"
             customerStatus.text = "Sesión cerrada en este teléfono"
@@ -94,6 +95,7 @@ class MainActivity : Activity() {
         layout.addView(Button(this).apply { text = "DETENER RASTREO AUTOMÁTICO"; setOnClickListener {
             pendingRemoteVehicleId = null
             pendingRemoteUrl = null
+            PendingPositions.clear(this@MainActivity)
             stopService(Intent(this@MainActivity, LocationService::class.java))
             state.text = "Rastreo automático y GPS local detenidos"
         } })
@@ -222,7 +224,8 @@ class MainActivity : Activity() {
         state = TextView(this).apply { text = "Seguimiento desactivado" }
         layout.addView(state)
         layout.addView(Button(this).apply { text = "Iniciar GPS"; setOnClickListener { requestLocation() } })
-        layout.addView(Button(this).apply { text = "Detener GPS"; setOnClickListener { pendingRemoteVehicleId = null; pendingRemoteUrl = null; stopService(Intent(this@MainActivity, LocationService::class.java)); state.text = "Seguimiento detenido" } })
+        layout.addView(Button(this).apply { text = "Detener GPS"; setOnClickListener { pendingRemoteVehicleId = null; pendingRemoteUrl = null; PendingPositions.clear(this@MainActivity)
+            stopService(Intent(this@MainActivity, LocationService::class.java)); state.text = "Seguimiento detenido" } })
         history = TextView(this).apply { text = LocationHistory.summary(this@MainActivity); setPadding(0, 24, 0, 24) }
         layout.addView(history)
         layout.addView(Button(this).apply { text = "Actualizar historial local"; setOnClickListener { history.text = LocationHistory.summary(this@MainActivity) } })
