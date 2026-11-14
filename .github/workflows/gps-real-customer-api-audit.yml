@@ -1,0 +1,99 @@
+name: GPS Ecuador - auditoria API clientes real
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verificar SSH y archivos sin modificar Vultr
+        env:
+          HOST: ${{ secrets.GPS_VULTR_HOST }}
+          USER: ${{ secrets.GPS_VULTR_USER }}
+          SSH_KEY: ${{ secrets.GPS_VULTR_SSH_KEY }}
+          FINGERPRINT: ${{ secrets.GPS_VULTR_HOST_FINGERPRINT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for v in HOST USER SSH_KEY FINGERPRINT; do test -n "${!v}" || { echo "Falta secreto: $v"; exit 1; }; done
+          umask 077
+          mkdir -p ~/.ssh
+          trap 'rm -f ~/.ssh/gps_audit_key ~/.ssh/gps_scan ~/.ssh/known_hosts' EXIT
+          python3 - <<'PY'
+          import os,base64,re,pathlib
+          raw=os.environ['SSH_KEY'].strip().lstrip('\ufeff').replace('\\r\\n','\n').replace('\\n','\n').replace('\r','')
+          if raw[:1] in ("'",'"') and raw[-1:]==raw[:1]: raw=raw[1:-1].strip()
+          if '-----BEGIN ' not in raw: raw=base64.b64decode(re.sub(r'\s+','',raw),validate=True).decode('ascii')
+          m=re.fullmatch(r'\s*-----BEGIN (OPENSSH PRIVATE KEY|RSA PRIVATE KEY|EC PRIVATE KEY|PRIVATE KEY|ENCRYPTED PRIVATE KEY)-----\s*(.*?)\s*-----END \1-----\s*',raw,re.S)
+          if not m: raise SystemExit('Formato de clave invalido')
+          kind,body=m.groups()
+          if 'Proc-Type:' in body: normalized=raw.strip()+'\n'
+          else:
+            body=re.sub(r'\s+','',body)
+            base64.b64decode(body,validate=True)
+            normalized='-----BEGIN '+kind+'-----\n'+'\n'.join(body[i:i+64] for i in range(0,len(body),64))+'\n-----END '+kind+'-----\n'
+          p=pathlib.Path.home()/'.ssh/gps_audit_key';p.write_text(normalized);p.chmod(0o600)
+          PY
+          ssh-keygen -y -P '' -f ~/.ssh/gps_audit_key >/dev/null
+          ssh-keyscan -T 10 -t ed25519,ecdsa,rsa "$HOST" 2>/dev/null > ~/.ssh/gps_scan
+          python3 - <<'PY'
+          import os,re
+          v=os.environ['FINGERPRINT']
+          matches=set(re.findall(r'SHA256:([A-Za-z0-9+/]{43})=?',v))
+          if len(matches)!=1: raise SystemExit('Huella SSH guardada invalida')
+          open('/tmp/gps_expected_fingerprint','w').write('SHA256:'+matches.pop())
+          PY
+          expected=$(cat /tmp/gps_expected_fingerprint)
+          rm -f /tmp/gps_expected_fingerprint
+          : > ~/.ssh/known_hosts
+          while IFS= read -r line; do
+            case "$line" in ""|\#*) continue;; esac
+            actual=$(printf '%s\n' "$line" | ssh-keygen -lf - -E sha256 | awk '{print $2}')
+            if [ "$actual" = "$expected" ]; then printf '%s\n' "$line" >> ~/.ssh/known_hosts; fi
+          done < ~/.ssh/gps_scan
+          test -s ~/.ssh/known_hosts || { echo "Huella del servidor no coincide"; exit 1; }
+          ssh -i ~/.ssh/gps_audit_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 "$USER@$HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          docker exec -i gps-api node <<'NODE'
+          const http=require('node:http');
+          const paths=[
+            ['GET','/api/customer/vehicles',401],
+            ['GET','/api/customer/positions',401],
+            ['GET','/api/customer/history?vehicleId=1&from=2026-11-01T00:00:00Z&to=2026-11-02T00:00:00Z',401],
+            ['POST','/api/customer/logout',401],
+            ['POST','/api/customer/phone-position',401],
+            ['POST','/api/customer/login',400],
+          ];
+          function check(method,path,auth){
+            return new Promise((resolve,reject)=>{
+              const req=http.request({host:'127.0.0.1',port:3000,method,path,headers:auth?{authorization:auth}:{},timeout:6000},res=>{res.resume();res.on('end',()=>resolve(res.statusCode))});
+              req.on('error',reject);req.on('timeout',()=>req.destroy(new Error('timeout')));req.end();
+            });
+          }
+          (async()=>{
+            let failed=false;
+            for(const [method,path,expected] of paths){
+              const status=await check(method,path);
+              console.log('API '+method+' '+path.split('?')[0]+' anonymous: '+status+' expected: '+expected);
+              if(status!==expected)failed=true;
+            }
+            const fake='Bearer '+'0'.repeat(64);
+            for(const path of ['/api/customer/vehicles','/api/customer/positions','/api/customer/history?vehicleId=2&from=2026-11-01T00:00:00Z&to=2026-11-02T00:00:00Z']){
+              const status=await check('GET',path,fake);
+              console.log('API GET '+path.split('?')[0]+' invalid-session: '+status+' expected: 401');
+              if(status!==401)failed=true;
+            }
+            const fs=require('node:fs');
+            const source=fs.readFileSync('/app/server.js','utf8');
+            const customer=source.indexOf("app.use('/api/customer'");
+            const privateRoute=source.indexOf("app.use('/api',");
+            console.log('Customer route mounted:',customer>=0,'before generic API:',customer>=0&&(privateRoute<0||customer<privateRoute));
+            if(customer<0||(privateRoute>=0&&customer>privateRoute))failed=true;
+            console.log('Authenticated cross-customer HTTP test: NOT RUN (no customer plaintext credentials or bearer tokens accessed)');
+            if(failed)process.exitCode=2;
+            else console.log('ANONYMOUS AND INVALID TOKEN API CHECKS PASSED');
+          })().catch(e=>{console.error('HTTP CHECK FAILED',e.code||e.message);process.exitCode=1});
+          NODE
+          REMOTE
