@@ -1,0 +1,23 @@
+name: GPS Ecuador - pruebas permisos clientes
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  customer-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Instalar dependencias sin ejecutar scripts
+        working-directory: backend
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Verificar sintaxis y permisos simulados
+        working-directory: backend
+        run: |
+          node --check customer-routes.cjs
+          node --check customer-server.cjs
+          node test-customer-routes.cjs
