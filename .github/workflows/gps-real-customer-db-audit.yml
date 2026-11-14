@@ -56,7 +56,7 @@ jobs:
           test -s ~/.ssh/known_hosts || { echo "Huella del servidor no coincide"; exit 1; }
           ssh -i ~/.ssh/gps_audit_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 "$USER@$HOST" 'bash -s' <<'REMOTE'
           set -euo pipefail
-          docker exec gps-api node <<'NODE'
+          docker exec -i gps-api node <<'NODE'
           const db=require('/app/db');
           (async()=>{
             const q=async(s,p=[])=> (await db.query(s,p)).rows;
