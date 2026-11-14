@@ -1,0 +1,75 @@
+name: GPS Ecuador - auditoria SSH solo lectura
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verificar SSH y archivos sin modificar Vultr
+        env:
+          HOST: ${{ secrets.GPS_VULTR_HOST }}
+          USER: ${{ secrets.GPS_VULTR_USER }}
+          SSH_KEY: ${{ secrets.GPS_VULTR_SSH_KEY }}
+          FINGERPRINT: ${{ secrets.GPS_VULTR_HOST_FINGERPRINT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for v in HOST USER SSH_KEY FINGERPRINT; do test -n "${!v}" || { echo "Falta secreto: $v"; exit 1; }; done
+          umask 077
+          mkdir -p ~/.ssh
+          trap 'rm -f ~/.ssh/gps_audit_key ~/.ssh/gps_scan ~/.ssh/known_hosts' EXIT
+          python3 - <<'PY'
+          import os,base64,re,pathlib
+          raw=os.environ['SSH_KEY'].strip().lstrip('\ufeff').replace('\\r\\n','\n').replace('\\n','\n').replace('\r','')
+          if raw[:1] in ("'",'"') and raw[-1:]==raw[:1]: raw=raw[1:-1].strip()
+          if '-----BEGIN ' not in raw: raw=base64.b64decode(re.sub(r'\s+','',raw),validate=True).decode('ascii')
+          m=re.fullmatch(r'\s*-----BEGIN (OPENSSH PRIVATE KEY|RSA PRIVATE KEY|EC PRIVATE KEY|PRIVATE KEY|ENCRYPTED PRIVATE KEY)-----\s*(.*?)\s*-----END \1-----\s*',raw,re.S)
+          if not m: raise SystemExit('Formato de clave invalido')
+          kind,body=m.groups()
+          if 'Proc-Type:' in body: normalized=raw.strip()+'\n'
+          else:
+            body=re.sub(r'\s+','',body)
+            base64.b64decode(body,validate=True)
+            normalized='-----BEGIN '+kind+'-----\n'+'\n'.join(body[i:i+64] for i in range(0,len(body),64))+'\n-----END '+kind+'-----\n'
+          p=pathlib.Path.home()/'.ssh/gps_audit_key';p.write_text(normalized);p.chmod(0o600)
+          PY
+          ssh-keygen -y -P '' -f ~/.ssh/gps_audit_key >/dev/null
+          ssh-keyscan -T 10 -t ed25519,ecdsa,rsa "$HOST" 2>/dev/null > ~/.ssh/gps_scan
+          python3 - <<'PY'
+          import os,re
+          v=os.environ['FINGERPRINT']
+          matches=set(re.findall(r'SHA256:([A-Za-z0-9+/]{43})=?',v))
+          if len(matches)!=1: raise SystemExit('Huella SSH guardada invalida')
+          open('/tmp/gps_expected_fingerprint','w').write('SHA256:'+matches.pop())
+          PY
+          expected=$(cat /tmp/gps_expected_fingerprint)
+          rm -f /tmp/gps_expected_fingerprint
+          : > ~/.ssh/known_hosts
+          while IFS= read -r line; do
+            case "$line" in ""|\#*) continue;; esac
+            actual=$(printf '%s\n' "$line" | ssh-keygen -lf - -E sha256 | awk '{print $2}')
+            if [ "$actual" = "$expected" ]; then printf '%s\n' "$line" >> ~/.ssh/known_hosts; fi
+          done < ~/.ssh/gps_scan
+          test -s ~/.ssh/known_hosts || { echo "Huella del servidor no coincide"; exit 1; }
+          ssh -i ~/.ssh/gps_audit_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 "$USER@$HOST" 'bash -s' <<'REMOTE'
+          set -u
+          echo "SSH: conectado"
+          echo "Contenedores existentes (nombres y estado):"
+          docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null || true
+          echo "Servicio Teltonika:"
+          systemctl is-active gps-teltonika.service 2>/dev/null || true
+          echo "Montaje de API:"
+          appdir=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app"}}{{.Source}}{{end}}{{end}}' gps-api 2>/dev/null || true)
+          if [ -n "$appdir" ]; then
+            for file in server.js customer-routes.cjs customer-server.cjs; do
+              if [ -f "$appdir/$file" ]; then echo "$file: presente"; else echo "$file: ausente"; fi
+            done
+            if [ -f "$appdir/server.js" ]; then
+              if grep -Fq "require('./customer-routes.cjs')" "$appdir/server.js"; then echo "Montaje de rutas: referencia encontrada"; else echo "Montaje de rutas: referencia no encontrada"; fi
+            fi
+          else echo "No se identifico montaje /app de gps-api"; fi
+          echo "Sin cambios en servidor"
+          REMOTE
