@@ -1,0 +1,88 @@
+name: GPS Ecuador - auditoria BD clientes real
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verificar SSH y archivos sin modificar Vultr
+        env:
+          HOST: ${{ secrets.GPS_VULTR_HOST }}
+          USER: ${{ secrets.GPS_VULTR_USER }}
+          SSH_KEY: ${{ secrets.GPS_VULTR_SSH_KEY }}
+          FINGERPRINT: ${{ secrets.GPS_VULTR_HOST_FINGERPRINT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for v in HOST USER SSH_KEY FINGERPRINT; do test -n "${!v}" || { echo "Falta secreto: $v"; exit 1; }; done
+          umask 077
+          mkdir -p ~/.ssh
+          trap 'rm -f ~/.ssh/gps_audit_key ~/.ssh/gps_scan ~/.ssh/known_hosts' EXIT
+          python3 - <<'PY'
+          import os,base64,re,pathlib
+          raw=os.environ['SSH_KEY'].strip().lstrip('\ufeff').replace('\\r\\n','\n').replace('\\n','\n').replace('\r','')
+          if raw[:1] in ("'",'"') and raw[-1:]==raw[:1]: raw=raw[1:-1].strip()
+          if '-----BEGIN ' not in raw: raw=base64.b64decode(re.sub(r'\s+','',raw),validate=True).decode('ascii')
+          m=re.fullmatch(r'\s*-----BEGIN (OPENSSH PRIVATE KEY|RSA PRIVATE KEY|EC PRIVATE KEY|PRIVATE KEY|ENCRYPTED PRIVATE KEY)-----\s*(.*?)\s*-----END \1-----\s*',raw,re.S)
+          if not m: raise SystemExit('Formato de clave invalido')
+          kind,body=m.groups()
+          if 'Proc-Type:' in body: normalized=raw.strip()+'\n'
+          else:
+            body=re.sub(r'\s+','',body)
+            base64.b64decode(body,validate=True)
+            normalized='-----BEGIN '+kind+'-----\n'+'\n'.join(body[i:i+64] for i in range(0,len(body),64))+'\n-----END '+kind+'-----\n'
+          p=pathlib.Path.home()/'.ssh/gps_audit_key';p.write_text(normalized);p.chmod(0o600)
+          PY
+          ssh-keygen -y -P '' -f ~/.ssh/gps_audit_key >/dev/null
+          ssh-keyscan -T 10 -t ed25519,ecdsa,rsa "$HOST" 2>/dev/null > ~/.ssh/gps_scan
+          python3 - <<'PY'
+          import os,re
+          v=os.environ['FINGERPRINT']
+          matches=set(re.findall(r'SHA256:([A-Za-z0-9+/]{43})=?',v))
+          if len(matches)!=1: raise SystemExit('Huella SSH guardada invalida')
+          open('/tmp/gps_expected_fingerprint','w').write('SHA256:'+matches.pop())
+          PY
+          expected=$(cat /tmp/gps_expected_fingerprint)
+          rm -f /tmp/gps_expected_fingerprint
+          : > ~/.ssh/known_hosts
+          while IFS= read -r line; do
+            case "$line" in ""|\#*) continue;; esac
+            actual=$(printf '%s\n' "$line" | ssh-keygen -lf - -E sha256 | awk '{print $2}')
+            if [ "$actual" = "$expected" ]; then printf '%s\n' "$line" >> ~/.ssh/known_hosts; fi
+          done < ~/.ssh/gps_scan
+          test -s ~/.ssh/known_hosts || { echo "Huella del servidor no coincide"; exit 1; }
+          ssh -i ~/.ssh/gps_audit_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 "$USER@$HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          docker exec gps-api node <<'NODE'
+          const db=require('/app/db');
+          (async()=>{
+            const q=async(s,p=[])=> (await db.query(s,p)).rows;
+            const tables=await q("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name=ANY($1::text[]) ORDER BY table_name",[['customer_accounts','customer_vehicle_access','customer_sessions','vehicles','positions']]);
+            const names=tables.map(x=>x.table_name);
+            console.log('TABLAS:',names.join(','));
+            const required=['customer_accounts','customer_vehicle_access','customer_sessions','vehicles','positions'];
+            if(required.some(t=>!names.includes(t))){console.log('RESULTADO: ESQUEMA INCOMPLETO');process.exitCode=2;return;}
+            const counts=await q("SELECT (SELECT count(*) FROM customer_accounts) AS customers,(SELECT count(*) FROM customer_accounts WHERE active) AS active_customers,(SELECT count(*) FROM customer_vehicle_access) AS grants,(SELECT count(*) FROM customer_sessions WHERE expires_at>now() AND revoked_at IS NULL) AS live_sessions,(SELECT count(*) FROM vehicles) AS vehicles");
+            console.log('CANTIDADES (sin datos privados):',JSON.stringify(counts[0]));
+            const invalid=await q("SELECT count(*)::int AS n FROM customer_vehicle_access a LEFT JOIN customer_accounts c ON c.id=a.customer_id LEFT JOIN vehicles v ON v.id=a.vehicle_id WHERE c.id IS NULL OR v.id IS NULL");
+            console.log('REFERENCIAS INVALIDAS:',invalid[0].n);
+            const shared=await q("SELECT count(*)::int AS n FROM (SELECT vehicle_id FROM customer_vehicle_access GROUP BY vehicle_id HAVING count(DISTINCT customer_id)>1) s");
+            console.log('VEHICULOS COMPARTIDOS ENTRE CLIENTES:',shared[0].n);
+            const pair=await q("SELECT a.customer_id AS c1,b.customer_id AS c2,a.vehicle_id AS v1,b.vehicle_id AS v2 FROM customer_vehicle_access a JOIN customer_vehicle_access b ON a.customer_id<>b.customer_id AND a.vehicle_id<>b.vehicle_id WHERE NOT EXISTS (SELECT 1 FROM customer_vehicle_access z WHERE z.customer_id=a.customer_id AND z.vehicle_id=b.vehicle_id) LIMIT 1");
+            if(pair.length){
+              const p=pair[0];
+              const own=await q('SELECT count(*)::int AS n FROM vehicles v JOIN customer_vehicle_access a ON a.vehicle_id=v.id WHERE a.customer_id=$1 AND v.id=$2',[p.c1,p.v1]);
+              const other=await q('SELECT count(*)::int AS n FROM vehicles v JOIN customer_vehicle_access a ON a.vehicle_id=v.id WHERE a.customer_id=$1 AND v.id=$2',[p.c1,p.v2]);
+              const history=await q('SELECT count(*)::int AS n FROM positions p JOIN customer_vehicle_access a ON a.vehicle_id=p.vehicle_id WHERE a.customer_id=$1 AND a.vehicle_id=$2',[p.c1,p.v2]);
+              console.log('PRUEBA SQL CLIENTES REALES: propio='+own[0].n+' ajeno='+other[0].n+' historial_ajeno='+history[0].n);
+              if(own[0].n!==1||other[0].n!==0||history[0].n!==0)process.exitCode=3;
+              else console.log('RESULTADO: FILTROS SQL CORRECTOS CON CLIENTES REALES');
+            }else console.log('RESULTADO: NO HAY DOS ASIGNACIONES DISTINTAS SUFICIENTES PARA PROBAR AISLAMIENTO REAL');
+            const mounted=await q("SELECT current_database() AS db");
+            console.log('CONSULTA BD: OK');
+          })().catch(e=>{console.error('AUDITORIA ERROR:',e.code||e.message);process.exitCode=1}).finally(()=>db.end());
+          NODE
+          REMOTE
