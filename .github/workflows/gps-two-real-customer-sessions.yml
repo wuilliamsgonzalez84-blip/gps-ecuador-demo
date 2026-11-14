@@ -1,0 +1,105 @@
+name: GPS Ecuador - dos sesiones clientes reales
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verificar SSH y archivos sin modificar Vultr
+        env:
+          HOST: ${{ secrets.GPS_VULTR_HOST }}
+          USER: ${{ secrets.GPS_VULTR_USER }}
+          SSH_KEY: ${{ secrets.GPS_VULTR_SSH_KEY }}
+          FINGERPRINT: ${{ secrets.GPS_VULTR_HOST_FINGERPRINT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for v in HOST USER SSH_KEY FINGERPRINT; do test -n "${!v}" || { echo "Falta secreto: $v"; exit 1; }; done
+          umask 077
+          mkdir -p ~/.ssh
+          trap 'rm -f ~/.ssh/gps_audit_key ~/.ssh/gps_scan ~/.ssh/known_hosts' EXIT
+          python3 - <<'PY'
+          import os,base64,re,pathlib
+          raw=os.environ['SSH_KEY'].strip().lstrip('\ufeff').replace('\\r\\n','\n').replace('\\n','\n').replace('\r','')
+          if raw[:1] in ("'",'"') and raw[-1:]==raw[:1]: raw=raw[1:-1].strip()
+          if '-----BEGIN ' not in raw: raw=base64.b64decode(re.sub(r'\s+','',raw),validate=True).decode('ascii')
+          m=re.fullmatch(r'\s*-----BEGIN (OPENSSH PRIVATE KEY|RSA PRIVATE KEY|EC PRIVATE KEY|PRIVATE KEY|ENCRYPTED PRIVATE KEY)-----\s*(.*?)\s*-----END \1-----\s*',raw,re.S)
+          if not m: raise SystemExit('Formato de clave invalido')
+          kind,body=m.groups()
+          if 'Proc-Type:' in body: normalized=raw.strip()+'\n'
+          else:
+            body=re.sub(r'\s+','',body)
+            base64.b64decode(body,validate=True)
+            normalized='-----BEGIN '+kind+'-----\n'+'\n'.join(body[i:i+64] for i in range(0,len(body),64))+'\n-----END '+kind+'-----\n'
+          p=pathlib.Path.home()/'.ssh/gps_audit_key';p.write_text(normalized);p.chmod(0o600)
+          PY
+          ssh-keygen -y -P '' -f ~/.ssh/gps_audit_key >/dev/null
+          ssh-keyscan -T 10 -t ed25519,ecdsa,rsa "$HOST" 2>/dev/null > ~/.ssh/gps_scan
+          python3 - <<'PY'
+          import os,re
+          v=os.environ['FINGERPRINT']
+          matches=set(re.findall(r'SHA256:([A-Za-z0-9+/]{43})=?',v))
+          if len(matches)!=1: raise SystemExit('Huella SSH guardada invalida')
+          open('/tmp/gps_expected_fingerprint','w').write('SHA256:'+matches.pop())
+          PY
+          expected=$(cat /tmp/gps_expected_fingerprint)
+          rm -f /tmp/gps_expected_fingerprint
+          : > ~/.ssh/known_hosts
+          while IFS= read -r line; do
+            case "$line" in ""|\#*) continue;; esac
+            actual=$(printf '%s\n' "$line" | ssh-keygen -lf - -E sha256 | awk '{print $2}')
+            if [ "$actual" = "$expected" ]; then printf '%s\n' "$line" >> ~/.ssh/known_hosts; fi
+          done < ~/.ssh/gps_scan
+          test -s ~/.ssh/known_hosts || { echo "Huella del servidor no coincide"; exit 1; }
+          ssh -i ~/.ssh/gps_audit_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 "$USER@$HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          docker exec -i gps-api node <<'NODE'
+          const db=require('/app/db');
+          const crypto=require('node:crypto');
+          const http=require('node:http');
+          const created=[];
+          const request=(path,token)=>new Promise((resolve,reject)=>{
+            const req=http.get({host:'127.0.0.1',port:3000,path,headers:{Authorization:'Bearer '+token},timeout:5000},res=>{
+              const chunks=[];res.on('data',b=>chunks.push(b));res.on('end',()=>{
+                try{resolve({status:res.statusCode,body:JSON.parse(Buffer.concat(chunks).toString('utf8'))})}catch(e){reject(Error('Invalid API JSON response'))}
+              });
+            });req.on('error',reject);req.on('timeout',()=>req.destroy(Error('timeout')));
+          });
+          (async()=>{
+            const pairs=(await db.query("SELECT a.customer_id AS customer_id,a.vehicle_id AS vehicle_id FROM customer_vehicle_access a JOIN customer_accounts c ON c.id=a.customer_id WHERE c.active=true ORDER BY a.customer_id,a.vehicle_id")).rows;
+            const one=pairs.find(x=>pairs.some(y=>y.customer_id!==x.customer_id&&y.vehicle_id!==x.vehicle_id&&!pairs.some(z=>z.customer_id===x.customer_id&&z.vehicle_id===y.vehicle_id)));
+            const two=one&&pairs.find(y=>y.customer_id!==one.customer_id&&y.vehicle_id!==one.vehicle_id&&!pairs.some(z=>z.customer_id===one.customer_id&&z.vehicle_id===y.vehicle_id)&&!pairs.some(z=>z.customer_id===y.customer_id&&z.vehicle_id===one.vehicle_id));
+            if(!one||!two)throw Error('No two clients with exclusive vehicle assignments');
+            const clients=[one,two];
+            for(const c of clients){
+              const token=crypto.randomBytes(32).toString('hex');
+              const digest=crypto.createHash('sha256').update(token).digest('hex');
+              const inserted=await db.query("INSERT INTO customer_sessions(customer_id,token_hash,expires_at) VALUES($1,$2,now()+interval '10 minutes') RETURNING id",[c.customer_id,digest]);
+              created.push(inserted.rows[0].id);
+              c.token=token;
+            }
+            let failures=0;
+            const range='&from=2026-11-01T00:00:00Z&to=2026-11-02T00:00:00Z';
+            for(let i=0;i<2;i++){
+              const me=clients[i],other=clients[1-i];
+              const vehicles=await request('/api/customer/vehicles',me.token);
+              const ids=(vehicles.body.vehicles||[]).map(x=>Number(x.id));
+              const positions=await request('/api/customer/positions',me.token);
+              const positionIds=(positions.body.positions||[]).map(x=>Number(x.vehicleId));
+              const own=await request('/api/customer/history?vehicleId='+me.vehicle_id+range,me.token);
+              const foreign=await request('/api/customer/history?vehicleId='+other.vehicle_id+range,me.token);
+              const valid=vehicles.status===200&&ids.includes(Number(me.vehicle_id))&&!ids.includes(Number(other.vehicle_id))&&positions.status===200&&!positionIds.includes(Number(other.vehicle_id))&&own.status===200&&foreign.status===200&&Array.isArray(foreign.body.positions)&&foreign.body.positions.length===0;
+              console.log('CLIENT '+(i+1)+' API: own_vehicle_visible='+ids.includes(Number(me.vehicle_id))+' foreign_vehicle_hidden='+!ids.includes(Number(other.vehicle_id))+' foreign_position_hidden='+!positionIds.includes(Number(other.vehicle_id))+' foreign_history_empty='+(Array.isArray(foreign.body.positions)&&foreign.body.positions.length===0)+' statuses='+[vehicles.status,positions.status,own.status,foreign.status].join(',')+' PASS='+valid);
+              if(!valid)failures++;
+            }
+            if(failures)throw Error('Cross-customer API authorization failed');
+            console.log('RESULT: TWO LIVE CUSTOMER SESSIONS ISOLATED CORRECTLY');
+          })().catch(e=>{console.error('TEST FAILED:',e.message);process.exitCode=1}).finally(async()=>{
+            try{if(created.length){await db.query('DELETE FROM customer_sessions WHERE id=ANY($1::bigint[])',[created]);console.log('TEMPORARY SESSIONS REMOVED:',created.length)}}catch(e){console.error('CLEANUP FAILED',e.code||e.message);process.exitCode=2}
+            await db.end();
+          });
+          NODE
+          REMOTE
