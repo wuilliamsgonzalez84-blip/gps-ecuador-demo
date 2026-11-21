@@ -37,8 +37,12 @@ const server = http.createServer(async (req,res) => {
   if (req.method !== 'GET') return json(res,405,{error:'Method not allowed'});
   if (req.headers.authorization !== 'Bearer ' + APP_API_KEY) return json(res,401,{error:'Unauthorized'});
   const path = new URL(req.url,'http://localhost');
-  if (!['/api/vehicles','/api/positions'].includes(path.pathname) || path.search) return json(res,404,{error:'Not found'});
+  if (!['/api/vehicles','/api/positions','/api/ready'].includes(path.pathname) || path.search) return json(res,404,{error:'Not found'});
   try {
+    if (path.pathname === '/api/ready') {
+      await pool.query('SELECT 1');
+      return json(res,200,{status:'ready',database:'connected'});
+    }
     const ids = [...allowedIds];
     if (path.pathname === '/api/vehicles') {
       const result = await pool.query(
