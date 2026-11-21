@@ -4,6 +4,7 @@ Read-only Node.js 20+ API for the existing Vultr PostgreSQL database. Code in Gi
 
 ## Routes
 - GET /health (process health only; not a DB check)
+- GET /api/ready (requires bearer key; checks PostgreSQL with SELECT 1; does not prove receiver ingestion)
 - GET /api/vehicles (allowlisted vehicle IDs, most recent timestamp)
 - GET /api/positions (latest position per allowlisted vehicle)
 
